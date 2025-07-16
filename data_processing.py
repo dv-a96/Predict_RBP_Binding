@@ -3,15 +3,12 @@ Module to preprocess rbp and rna sequences, and rbp-rna binding intensities.
 '''
 import pandas as pd
 import re
+import numpy as np
 from logger_utils import create_logger
 
 
-rbps = 'Data_sets/training_RBPs2.txt'
-intensities = 'Data_sets/training_data2.txt.gz'
-rnas = 'Data_sets/training_seqs.txt'
-intensities = pd.read_csv(intensities,sep='\t',header=None)
-rbps = pd.read_csv(rbps,header=None)
-rnas = pd.read_csv(rnas,header=None)
+
+
 
 def convert_txt_to_fast(input_file):
     """Convert txt file into fasta format.
@@ -72,9 +69,47 @@ def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
         logger.debug(f"Invalid length sequences: {invalid_length[col].tolist()[:5]}")  # preview
         logger.debug(f"Indices: {invalid_length.index}")
     return rnas, bad_indexes
+
+def validate_rbps_sequences(rbps_data, logger = None):
+    bad_indexes = None
+    return rbps_data,bad_indexes
+
+def validate_intensities_values(intensities_df, logger = None):
     
-def prepare_training_data():
-    rnas, bad_indexes = validate_rna_sequences(rnas,29,43,None)
-    if bad_indexes: # remove them from intensities accordingly
+    return intensities_df
+
+def preprocess_intensities(intensities_df, logger=None):
+    # negatives to zero?
+    # Standarization/ Log transformation....
+    return intensities_df
+    
+def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_sequences = 'Data_sets/training_RBPs2.txt',
+                          rbps_rnas_binding_intensities = 'Data_sets/training_data2.txt.gz', logger=None):
+    """Prepare training/testing data for the model.
+
+    Args:
+        rna_sequences (str, optional): Path to the RNA sequences file. Defaults to 'Data_sets/training_seqs.txt'.
+        rbps_sequences (str, optional): Path to the RBPs sequences file. Defaults to 'Data_sets/training_RBPs2.txt'.
+        rbps_rnas_binding_intensities (str, optional): Path to the RBPs-RNAs binding intensities file. Defaults to 'Data_sets/training_data2.txt.gz'.
+        logger (_type_, optional): Logger instance for logging. Defaults to None.
+
+    Returns:
+        Tuple: (rnas, rbps, intensities) where:
+            rnas (pd.DataFrame): DataFrame of validated RNA sequences.
+            rbps (pd.DataFrame): DataFrame of validated RBPs sequences.
+            intensities (pd.DataFrame): DataFrame of preprocessed binding intensities.
+    """
+    intensities = pd.read_csv(rbps_rnas_binding_intensities,sep='\t',header=None)
+    rbps = pd.read_csv(rbps_sequences,header=None)
+    rnas = pd.read_csv(rna_sequences,header=None)
+    rnas, rna_bad_indexes = validate_rna_sequences(rnas,29,43,logger)
+    if rna_bad_indexes: # remove them from intensities accordingly
         pass
+    rbps, rbps_bad_indexes = validate_rbps_sequences(rbps, logger)
+    if rbps_bad_indexes: # remove them from intensities accordingly
+        pass
+    intensities = preprocess_intensities(intensities, logger)
+    rbps = np.array(rbps)
+    rnas = np.array(rnas)
+    intensities = np.array(intensities)
     return rnas,rbps,intensities
