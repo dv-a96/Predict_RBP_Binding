@@ -80,7 +80,55 @@ def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector
     return network1, callbacksList
 
 
+def CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=3,
+        earlyStopPatience=10, l2weight=0.0, l1weight=0.01, dropoutRate=0.5,
+        lossIdx=1, optimizerIdx=2, lrate=0.001):
     
+    if optimizerIdx == 1:
+        myOptimizer = optimizers.RMSprop(learning_rate=lrate)
+    elif optimizerIdx == 2:
+        myOptimizer = optimizers.Adam(learning_rate=lrate)
+        
+    if lossIdx == 1:
+        myLoss = 'mean_squared_error'
+    elif lossIdx == 2:
+        myLoss = 'mean_absolute_percentage_error'
+    elif lossIdx == 3:
+        myLoss = 'mean_squared_logarithmic_error'
+    elif lossIdx == 4:
+        myLoss = 'logcosh'
+    
+    inputTensor = Input(shape=input_shape, name='RNA_Protein_Matrix')
+    
+    x = layers.Conv1D(filters=64, kernel_size=8, activation=activationFunc, padding='same',
+                      kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight))(inputTensor)
+    x = layers.MaxPooling1D(pool_size=2)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(dropoutRate)(x)
+
+    x = layers.Conv1D(filters=128, kernel_size=3, activation=activationFunc, padding='same',
+                      kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight))(x)
+    x = layers.MaxPooling1D(pool_size=2)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(dropoutRate)(x)
+
+    x = layers.Flatten()(x)
+    x = layers.Dense(64, activation=activationFunc)(x)
+    output = layers.Dense(1, activation='linear')(x)  # Continuose output
+    
+    model = models.Model(inputs=inputTensor, outputs=output)
+    model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
+    
+    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard("CNN_model")
+    callbacksList = [
+        ModelCheckpoint(filepath=checkPtFile, verbose=1, monitor="val_loss", save_best_only=True),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=1e-6),
+        EarlyStopping(monitor="val_loss", patience=earlyStopPatience),
+        TensorBoard(tensorBoardDir, histogram_freq=0, embeddings_freq=0)
+    ]
+    
+    return model, callbacksList
+
 
 
 
