@@ -22,7 +22,7 @@ def gen_rnavec(mFile='./trained_models/exampleModel', faFile="example.fasta", ve
 	elif modelTypeIndex==3:
 		rv2 = fastbioseq.d2vbioseq.load_model(mFile) #biovec.models.load_protvec(mFile)
 	else:
-		raise RuntimeError, "modelTypeIndex (last argument to the script) should be [1 to 3]!"
+		raise RuntimeError("modelTypeIndex (last argument to the script) should be [1 to 3]!")
 	
 	all_vectors=[]
 	all_names=[]
@@ -51,6 +51,10 @@ if __name__ == '__main__':
 	modelFile=sys.argv[1]
 	fastaFile=sys.argv[2]
 	vectorFile=sys.argv[3]
-	modelTypeIndex=int(sys.argv[4])	# 1 for word2vec, 2 for fasttxt, 3 for doc2vec	
+	modelTypeIndex=int(sys.argv[4])	# 1 for word2vec, 2 for fasttxt, 3 for doc2vec
+	print("argv[1]: ", modelFile)
+	print("argv[2]: ", fastaFile)
+	print("argv[3]: ", vectorFile)
+	print("argv[4]: ", modelTypeIndex)	
 
 	gen_rnavec(modelFile, fastaFile, vectorFile, modelTypeIndex)
