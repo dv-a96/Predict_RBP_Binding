@@ -6,8 +6,53 @@ import re
 import numpy as np
 from logger_utils import create_logger
 
+rnas = 'Data_sets/training_seqs.txt'
+rbps = 'Data_sets/training_RBPs2.txt'
+rna_df = pd.read_csv(rnas, header=None)
+rbps_df = pd.read_csv(rbps, header=None)
 
 
+def rna_one_hot(rna_df, max_length=41, pad_value=0):
+    bases = ['A', 'C', 'G', 'U']
+    vector_length = 20  # padding length
+    base_to_vec = {}
+
+    for i, base in enumerate(bases):
+        vec = np.full(vector_length, pad_value)
+        vec[i] = 1  # one-hot position for A/C/G/U at index 0–3
+        base_to_vec[base] = vec
+
+    encoded_rnas = []
+
+    for rna in rna_df[0]:
+        one_hot = [base_to_vec.get(base, np.full(vector_length, pad_value)) for base in rna]
+        if len(one_hot) < max_length:
+            one_hot += [np.full(vector_length, pad_value)] * (max_length - len(one_hot))
+        else:
+            one_hot = one_hot[:max_length]
+        encoded_rnas.append(np.array(one_hot))
+
+    return np.array(encoded_rnas).transpose(0, 2, 1)
+
+
+
+def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
+    # 20 standard amino acids
+    amino_acids = list("ACDEFGHIKLMNPQRSTVWY")
+    aa_to_vec = {aa: np.eye(len(amino_acids))[i] for i, aa in enumerate(amino_acids)}
+    encoded_proteins = []
+
+    for protein in protein_df[0]:
+        # Convert each amino acid to one-hot vector, unknowns get pad_value
+        one_hot = [aa_to_vec.get(aa, np.full(len(amino_acids), pad_value)) for aa in protein]
+        # Pad or truncate to max_length
+        if len(one_hot) < max_length:
+            one_hot += [np.full(len(amino_acids), pad_value)] * (max_length - len(one_hot))
+        else:
+            one_hot = one_hot[:max_length]
+        encoded_proteins.append(np.array(one_hot))
+
+    return np.array(encoded_proteins).transpose(0, 2, 1)
 
 
 def convert_txt_to_fast(input_file):
