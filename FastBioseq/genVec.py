@@ -7,10 +7,14 @@ Created on Sat November 30 12:21:10 2019
 """
 from Bio import SeqIO
 import sys
-#sys.path.append(**add your FastBioseq path here**)
+sys.path.append("/home/dv_unix/Deep_Learning_Biology/Predict_RBP_Binding")
 import fastbioseq
 import pandas as pd
 import numpy as np
+
+from gensim.models import FastText
+
+
 
 
 def gen_rnavec(mFile='./trained_models/exampleModel', faFile="example.fasta", vecFile='example.csv', modelTypeIndex=2):
@@ -48,6 +52,7 @@ def gen_rnavec(mFile='./trained_models/exampleModel', faFile="example.fasta", ve
 
 
 if __name__ == '__main__':
+	model = FastText.load("sample1_model")
 	modelFile=sys.argv[1]
 	fastaFile=sys.argv[2]
 	vectorFile=sys.argv[3]
