@@ -6,10 +6,11 @@ import re
 import numpy as np
 from logger_utils import create_logger
 
-rnas = 'Data_sets/training_seqs.txt'
-rbps = 'Data_sets/training_RBPs2.txt'
-rna_df = pd.read_csv(rnas, header=None)
-rbps_df = pd.read_csv(rbps, header=None)
+
+# rnas = 'Data_sets/training_seqs.txt'
+# rbps = 'Data_sets/training_RBPs2.txt'
+# rna_df = pd.read_csv(rnas, header=None)
+# rbps_df = pd.read_csv(rbps, header=None)
 
 
 def rna_one_hot(rna_df, max_length=41, pad_value=0):
@@ -32,12 +33,12 @@ def rna_one_hot(rna_df, max_length=41, pad_value=0):
             one_hot = one_hot[:max_length]
         encoded_rnas.append(np.array(one_hot))
 
-    return np.array(encoded_rnas).transpose(0, 2, 1)
+    return np.array(encoded_rnas).transpose(0, 1, 2)
 
 
 
 def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
-    # 20 standard amino acids
+# 20 standard amino acids
     amino_acids = list("ACDEFGHIKLMNPQRSTVWY")
     aa_to_vec = {aa: np.eye(len(amino_acids))[i] for i, aa in enumerate(amino_acids)}
     encoded_proteins = []
@@ -52,7 +53,7 @@ def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
             one_hot = one_hot[:max_length]
         encoded_proteins.append(np.array(one_hot))
 
-    return np.array(encoded_proteins).transpose(0, 2, 1)
+    return np.array(encoded_proteins).transpose(0, 1, 2)
 
 
 def convert_txt_to_fast(input_file):
@@ -102,7 +103,7 @@ def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
     invalid_rna = df[~rna_mask]
     invalid_length = df[~length_mask]
     bad_indexes = None
-    rnas = rnas[rna_mask]
+    rnas = df[rna_mask]
     if not invalid_rna.empty:
         logger.warning(f"{len(invalid_rna)} sequences have invalid RNA characters we removed them from the Data.")
         logger.debug(f"Invalid RNA sequences: {invalid_rna[col].tolist()[:5]}")  # preview first 5
@@ -154,7 +155,8 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
     if rbps_bad_indexes: # remove them from intensities accordingly
         pass
     intensities = preprocess_intensities(intensities, logger)
-    rbps = np.array(rbps)
-    rnas = np.array(rnas)
+    #rbps = np.array(rbps)
+    #rnas = np.array(rnas)
     intensities = np.array(intensities)
     return rnas,rbps,intensities
+

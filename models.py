@@ -80,7 +80,7 @@ def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector
     return network1, callbacksList
 
 
-def CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=3,
+def Combined_CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=3,
         earlyStopPatience=10, l2weight=0.0, l1weight=0.01, dropoutRate=0.5,
         lossIdx=1, optimizerIdx=2, lrate=0.001):
     
@@ -169,66 +169,66 @@ def correlation_coefficient_loss(y_true, y_pred):
 
 
 
-class Kron(layers.merge._Merge):
-    """Merge Layer that mimic Kronecker product on a list of 2 inputs
-    """
-    def __init__(self, axis=-1, **kwargs):
-        """
-        **kwargs: standard layer keyword arguments.
-        """
-        super(Kron, self).__init__(**kwargs)
-        self.axis=axis
-        self._reshape_required = False  # to be compatible with super class layers.merge._Merge's call() method
+# class Kron(layers.merge._Merge):
+#     """Merge Layer that mimic Kronecker product on a list of 2 inputs
+#     """
+#     def __init__(self, axis=-1, **kwargs):
+#         """
+#         **kwargs: standard layer keyword arguments.
+#         """
+#         super(Kron, self).__init__(**kwargs)
+#         self.axis=axis
+#         self._reshape_required = False  # to be compatible with super class layers.merge._Merge's call() method
 
-    def build(self, input_shape):
-        pass
+#     def build(self, input_shape):
+#         pass
 
-    def _merge_function(self, inputs):
-        """
-        Do Kronecker product on the last axis for the 2 input tensors. Note inputs tensors should have equal dimension for axis=0 case (ie. batchsize should be equal). 
+#     def _merge_function(self, inputs):
+#         """
+#         Do Kronecker product on the last axis for the 2 input tensors. Note inputs tensors should have equal dimension for axis=0 case (ie. batchsize should be equal). 
 
-        Alternatively, if inputs tensors have equal dimensions, can also use the implementation in outer_product() function below. 
-        """
-        output=K.repeat_elements(inputs[0], K.int_shape(inputs[1])[1], -1)
-        inputs1_tiled=K.tile(inputs[1], [1, K.int_shape(inputs[0])[1]])
-        return output*inputs1_tiled 
+#         Alternatively, if inputs tensors have equal dimensions, can also use the implementation in outer_product() function below. 
+#         """
+#         output=K.repeat_elements(inputs[0], K.int_shape(inputs[1])[1], -1)
+#         inputs1_tiled=K.tile(inputs[1], [1, K.int_shape(inputs[0])[1]])
+#         return output*inputs1_tiled 
         
-    @staticmethod    
-    def outer_product(inputs):
-        """
-        use the implementation in _merge_function() for outer product, since it is more general. This outer_product() function can only deal with inputs of 2 tensors with equal dimensions
-        """
-        inputs0, inputs1 = inputs
-        batchSize = K.shape(inputs0)[0]
-        outerProduct = inputs0[:, :, np.newaxis]*inputs1[:, np.newaxis, :]
-        outerProduct = K.reshape(outerProduct, (batchSize, -1))
-        return outerProduct    
+#     @staticmethod    
+#     def outer_product(inputs):
+#         """
+#         use the implementation in _merge_function() for outer product, since it is more general. This outer_product() function can only deal with inputs of 2 tensors with equal dimensions
+#         """
+#         inputs0, inputs1 = inputs
+#         batchSize = K.shape(inputs0)[0]
+#         outerProduct = inputs0[:, :, np.newaxis]*inputs1[:, np.newaxis, :]
+#         outerProduct = K.reshape(outerProduct, (batchSize, -1))
+#         return outerProduct    
 
-    def compute_output_shape(self, input_shape):
-        if not isinstance(input_shape, list) or len(input_shape)!=2:
-            raise ValueError('A `Kronecker` layer should be called on a list of 2 inputs.')
-        output_shape=list(input_shape[0])
-        shape=list(input_shape[1])
-        if output_shape[self.axis] is None or shape[self.axis] is None:
-            output_shape[self.axis]=None
-        output_shape[self.axis] *= shape[self.axis]
-        return tuple(output_shape)
+#     def compute_output_shape(self, input_shape):
+#         if not isinstance(input_shape, list) or len(input_shape)!=2:
+#             raise ValueError('A `Kronecker` layer should be called on a list of 2 inputs.')
+#         output_shape=list(input_shape[0])
+#         shape=list(input_shape[1])
+#         if output_shape[self.axis] is None or shape[self.axis] is None:
+#             output_shape[self.axis]=None
+#         output_shape[self.axis] *= shape[self.axis]
+#         return tuple(output_shape)
 
-    def get_config(self):
-        base_config = super().get_config()
-        return {**base_config, "axis": self.axis}
+#     def get_config(self):
+#         base_config = super().get_config()
+#         return {**base_config, "axis": self.axis}
 
 
 
-def kronecker(inputs, **kwargs):
-    """Functional interface to the `Kron` layer.
-    # Arguments
-        inputs: A list of input tensors (at least 2).
-        **kwargs: Standard layer keyword arguments.
-    # Returns
-        A tensor, the kronecker product of the inputs.
-    """
-    return Kron(**kwargs)(inputs)
+# def kronecker(inputs, **kwargs):
+#     """Functional interface to the `Kron` layer.
+#     # Arguments
+#         inputs: A list of input tensors (at least 2).
+#         **kwargs: Standard layer keyword arguments.
+#     # Returns
+#         A tensor, the kronecker product of the inputs.
+#     """
+#     return Kron(**kwargs)(inputs)
 
 
 
