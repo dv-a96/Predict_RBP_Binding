@@ -12,8 +12,6 @@ import fastbioseq
 import pandas as pd
 import numpy as np
 
-from gensim.models import FastText
-
 
 
 
