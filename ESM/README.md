@@ -13,12 +13,9 @@ Then to compute embedding for protein in `FASTA` file run the `extract.py` file 
 `--repr_layers` - layers indices from which to extract representations (0 to num_layers, inclusive)
 
 `--include` - specify which representations to return:
-               
-               `per_tok` includes the full sequence, with an embedding per amino acid (seq_len x hidden_dim).
-               
-               `mean` includes the embeddings averaged over the full sequence, per layer.
-               
-               `bos` includes the embeddings from the beginning-of-sequence token. (NOTE: Don't use with the pre-trained models)
+* `per_tok` includes the full sequence, with an embedding per amino acid (seq_len x hidden_dim).
+* `mean` includes the embeddings averaged over the full sequence, per layer.
+* `bos` includes the embeddings from the beginning-of-sequence token. (NOTE: Don't use with the pre-trained models)
 
 For example to extrcat embeddings from sample FASTA file run the following script:
 `python extract.py esm2_t6_8M_UR50D some_proteins.fasta ProteinEmbeding --repr_layers 0 5 6 --include mean per_tok`
