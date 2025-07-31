@@ -8,6 +8,7 @@ import argparse
 import pathlib
 
 import torch
+import time
 
 from esm import Alphabet, FastaBatchedDataset, ProteinBertModel, pretrained, MSATransformer
 
@@ -137,4 +138,7 @@ def main():
     run(args)
 
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    end_time = time.time()
+    print("Extracting took {} seconds", end_time - start_time)

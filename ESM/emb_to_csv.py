@@ -2,6 +2,7 @@ import os
 import torch
 import pandas as pd
 import argparse
+import time
 
 def extract_embeddings(embedding_dir, output_csv, layer):
     data_rows = []
@@ -42,4 +43,7 @@ def main():
     extract_embeddings(args.embedding_dir, args.output_csv, args.layer)
 
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    end_time = time.time()
+    print("Convert files to vectors took {} seconds", end_time - start_time)
