@@ -8,12 +8,8 @@ from scipy import stats
 import warnings
 from logger_utils import create_logger
 
-
-# rnas = 'Data_sets/training_seqs.txt'
-# rbps = 'Data_sets/training_RBPs2.txt'
-# rna_df = pd.read_csv(rnas, header=None)
-# rbps_df = pd.read_csv(rbps, header=None)
-
+# NOTE: 1. remove bad indexes from intensities.
+# NOTE: 
 
 def rna_one_hot(rna_df, max_length=41, pad_value=0):
     bases = ['A', 'C', 'G', 'U']
@@ -315,6 +311,17 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
     return selected_indices, reduced_matrix
 
 def process_for_cnn(rbps, rnas, intensities):
+    """Process the rbps and rnas sequences to onehot encodings, and sample data using the internal
+    sample_global_rowwise_by_percentile function. Sample intenseties over certain precentile.
+
+    Args:
+        rbps (pd.Series): protein seqeunces.
+        rnas (pd.Series): rna sequences.
+        intensities (nd.array): intensities matrix.
+
+    Returns:
+        _type_: _description_
+    """
     selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1)
     rbps = rbp_one_hot(rbps)
     rnas = rnas.iloc[selected_indices]

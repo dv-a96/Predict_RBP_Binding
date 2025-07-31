@@ -18,6 +18,12 @@ tensorboard_dir = os.path.join(base_dir, "TensorBoard")
 os.makedirs(checkpoint_dir, exist_ok=True)
 os.makedirs(tensorboard_dir, exist_ok=True)
 
+#### NOTE: Future addition:
+""" 
+1. Early stop based on training steps?
+2. Reduce LR based on training steps?
+"""
+
 
 def get_optimizer(optimizerIdx = 2, lrate = 0.1):
     if optimizerIdx==1:
@@ -36,14 +42,38 @@ def get_loss(lossIdx):
     elif lossIdx==4:
         myLoss='logcosh'
     return myLoss
+
+
 def init_checkpoint_and_tensorboard(model_name):
     """Initialize checkpoint and TensorBoard directories with model name and timestamp."""
     # Optional: add timestamp and model name to distinguish runs
     global checkpoint_dir, tensorboard_dir
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    checkpoint_dir = os.path.join(checkpoint_dir, f"{model_name}")
+    tensorboard_dir = os.path.join(tensorboard_dir, f"{model_name}")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(tensorboard_dir, exist_ok=True)
     checkpoint_dir = os.path.join(checkpoint_dir, f"{model_name}_{timestamp}.keras")
     tensorboard_dir = os.path.join(tensorboard_dir, f"{model_name}_{timestamp}")
     return checkpoint_dir, tensorboard_dir
+
+def get_callbacks(checkPtFile, tensorBoardDir, plateauPatience = 3 ):
+    """Generated a callback list with checkpoint, reduce lr and tensorboard
+
+    Args:
+        checkPtFile (str): path to checkpoint folder
+        tensorBoardDir (str): path to tensorboard folder
+        plateauPatience (int, optional): number of epo. Defaults to 3.
+    """
+    #NOTE: No early stoping and reduce plateu due to 1 epoch training.
+    # EarlyStopping(monitor="val_loss", patience=earlyStopPatience),
+    # ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=1e-6),
+    callbacksList = [
+        ModelCheckpoint(filepath=checkPtFile, verbose=1, monitor="val_loss", save_best_only=True),
+        
+        TensorBoard(tensorBoardDir, histogram_freq=0, embeddings_freq=0, update_freq=10)
+    ]
+    return callbacksList
 
 def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector_length = 1024, plateauPatience = 3,
                  earlyStopPatience = 10,  l2weight=0, l1weight=0.01, dropoutRate=0.5, 
@@ -82,7 +112,7 @@ def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector
     network1=models.Model([protTensor, rnaTensor], similarity) 
     network1.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
     checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard("probe_rating") 
-    callbacksList=[ModelCheckpoint(filepath=checkPtFile, verbose=1, monitor="val_loss", save_best_only=True), ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=0.000001), EarlyStopping(monitor="val_loss", patience=earlyStopPatience), TensorBoard(tensorBoardDir, histogram_freq=0, embeddings_freq=0)] 
+    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
     return network1, callbacksList
 
 
@@ -119,12 +149,7 @@ def Combined_CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=
     model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
     
     checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard("CNN_model")
-    callbacksList = [
-        ModelCheckpoint(filepath=checkPtFile, verbose=1, monitor="val_loss", save_best_only=True),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=1e-6),
-        EarlyStopping(monitor="val_loss", patience=earlyStopPatience),
-        TensorBoard(tensorBoardDir, histogram_freq=0, embeddings_freq=0)
-    ]
+    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
     
     return model, callbacksList
 
@@ -162,12 +187,7 @@ def MLP_Model(input_shape=(1050, 20), activationFunc='relu', plateauPatience=3,
 
     # Callbacks
     checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard("MLP_model")
-    callbacksList = [
-        ModelCheckpoint(filepath=checkPtFile, verbose=1, monitor="val_loss", save_best_only=True),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=1e-6),
-        EarlyStopping(monitor="val_loss", patience=earlyStopPatience),
-        TensorBoard(tensorBoardDir, histogram_freq=0, embeddings_freq=0)
-    ]
+    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
 
     return model, callbacksList
 
