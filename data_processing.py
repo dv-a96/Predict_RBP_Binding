@@ -4,13 +4,12 @@ Module to preprocess rbp and rna sequences, and rbp-rna binding intensities.
 import pandas as pd
 import re
 import numpy as np
+from scipy import stats
+import warnings
 from logger_utils import create_logger
 
-rnas = 'Data_sets/training_seqs.txt'
-rbps = 'Data_sets/training_RBPs2.txt'
-rna_df = pd.read_csv(rnas, header=None)
-rbps_df = pd.read_csv(rbps, header=None)
-
+# NOTE: 1. remove bad indexes from intensities.
+# NOTE: 
 
 def rna_one_hot(rna_df, max_length=41, pad_value=0):
     bases = ['A', 'C', 'G', 'U']
@@ -32,12 +31,12 @@ def rna_one_hot(rna_df, max_length=41, pad_value=0):
             one_hot = one_hot[:max_length]
         encoded_rnas.append(np.array(one_hot))
 
-    return np.array(encoded_rnas).transpose(0, 2, 1)
+    return np.array(encoded_rnas).transpose(0, 1, 2)
 
 
 
 def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
-    # 20 standard amino acids
+# 20 standard amino acids
     amino_acids = list("ACDEFGHIKLMNPQRSTVWY")
     aa_to_vec = {aa: np.eye(len(amino_acids))[i] for i, aa in enumerate(amino_acids)}
     encoded_proteins = []
@@ -52,7 +51,7 @@ def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
             one_hot = one_hot[:max_length]
         encoded_proteins.append(np.array(one_hot))
 
-    return np.array(encoded_proteins).transpose(0, 2, 1)
+    return np.array(encoded_proteins).transpose(0, 1, 2)
 
 
 def convert_txt_to_fast(input_file):
@@ -102,7 +101,7 @@ def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
     invalid_rna = df[~rna_mask]
     invalid_length = df[~length_mask]
     bad_indexes = None
-    rnas = rnas[rna_mask]
+    rnas = df[rna_mask]
     if not invalid_rna.empty:
         logger.warning(f"{len(invalid_rna)} sequences have invalid RNA characters we removed them from the Data.")
         logger.debug(f"Invalid RNA sequences: {invalid_rna[col].tolist()[:5]}")  # preview first 5
@@ -154,7 +153,178 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
     if rbps_bad_indexes: # remove them from intensities accordingly
         pass
     intensities = preprocess_intensities(intensities, logger)
-    rbps = np.array(rbps)
-    rnas = np.array(rnas)
+    #rbps = np.array(rbps)
+    #rnas = np.array(rnas)
     intensities = np.array(intensities)
     return rnas,rbps,intensities
+
+
+
+def fit_distribution_and_return_params(intensities_df: pd.DataFrame):
+    """
+    For each protein (column) in the binding intensities DataFrame,
+    fit several continuous distributions and return the best-fitting one
+    along with its estimated parameters and K-S statistic.
+
+    Parameters:
+        intensities_df (pd.DataFrame): columns = proteins, rows = continuous binding intensities
+
+    Returns:
+        pd.DataFrame: one row per protein with best distribution name, parameters, and K-S statistic
+    """
+    distributions = {
+        'lognorm': stats.lognorm,
+        'gamma': stats.gamma,
+        'expon': stats.expon,
+        'norm': stats.norm
+    }
+
+    results = []
+
+    for protein in intensities_df.columns:
+        data = intensities_df[protein].dropna().values
+        data = data[np.isfinite(data)]
+
+        if len(data) < 10:
+            continue  # skip if too few data points
+
+        best_fit = None
+        best_stat = np.inf
+        best_params = None
+
+        for dist_name, dist in distributions.items():
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    params = dist.fit(data)
+                    ks_stat, _ = stats.kstest(data, dist_name, args=params)
+                    if ks_stat < best_stat:
+                        best_stat = ks_stat
+                        best_fit = dist_name
+                        best_params = params
+            except Exception:
+                continue
+
+        results.append({
+            'protein': protein,
+            'best_fit_distribution': best_fit,
+            'ks_statistic': best_stat,
+            'fit_params': best_params
+        })
+
+    return pd.DataFrame(results)
+
+# def sample_percentile_by_rbp(intensities: pd.DataFrame, percentile: float = 99):
+#     """
+#     For each RBP (column) in the RNA x RBP intensity matrix:
+#     - Select all RNAs with intensities above the given percentile.
+#     - Randomly sample an equal number of RNAs from the rest (≤ percentile).
+#     - Return:
+#         - A reduced intensity matrix with all selected RNAs (union of both sets).
+#         - Dicts of indices per RBP for both groups.
+
+#     Parameters:
+#     ----------
+#     intensities : pd.DataFrame
+#         RNA (rows) × RBP (columns) binding intensity matrix.
+#     percentile : float
+#         Percentile threshold (default is 95).
+
+#     Returns:
+#     -------
+#     sampled_matrix : pd.DataFrame
+#         Reduced matrix with only selected RNAs.
+#     selected_rnas
+#     """
+#     if isinstance(intensities,np.ndarray):
+#         intensities=pd.DataFrame(intensities)
+#         selected_rna_indices = set()
+
+#     for rbp in intensities.columns:
+#         col = intensities[rbp]
+#         threshold = np.percentile(col, percentile)
+#         above = col[col > threshold]
+#         below = col[col <= threshold]
+
+#         n_above = len(above)
+#         if n_above == 0 or len(below) < n_above:
+#             continue
+#         sampled_below = np.random.choice(below.index, size=n_above, replace=False)
+#         selected_rna_indices.update(above.index)
+#         selected_rna_indices.update(sampled_below)
+
+#     selected_rnas = list(selected_rna_indices)
+#     sampled_matrix = intensities.loc[selected_rnas]
+#     sampled_matrix = sampled_matrix.loc[intensities.index.intersection(sampled_matrix.index)]
+
+#     return sampled_matrix, selected_rnas
+
+
+def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: float = 95, min_fraction: float = 0.5):
+    """
+    Sample RNA rows based on the fraction of values above a global percentile.
+
+    Parameters:
+    ----------
+    intensities : np.ndarray
+        2D array of shape (n_rnas, n_rbps)
+    percentile : float
+        Global threshold percentile (default: 95)
+    min_fraction : float
+        Minimum fraction of values in a row that must be above threshold (default: 0.5)
+
+    Returns:
+    -------
+    selected_indices : np.ndarray
+        Combined RNA row indices (above + sampled below)
+    above_indices : np.ndarray
+        RNA indices where >= min_fraction of values > threshold
+    below_sampled_indices : np.ndarray
+        Randomly sampled RNA indices from remaining rows
+    reduced_matrix : np.ndarray
+        Subset of input matrix with selected rows only
+    """
+    
+    n_rnas, n_rbps = intensities.shape
+    threshold = np.percentile(intensities, percentile)
+
+    # Count how many values in each row are > threshold
+    row_above_counts = (intensities > threshold).sum(axis=1)
+    required_count = int(np.ceil(min_fraction * n_rbps))
+
+    above_mask = row_above_counts >= required_count
+    below_mask = ~above_mask
+
+    above_indices = np.where(above_mask)[0]
+    below_indices = np.where(below_mask)[0]
+
+    n_above = len(above_indices)
+    if n_above == 0 or len(below_indices) < n_above:
+        raise ValueError("Not enough rows satisfying condition or not enough to sample from.")
+
+    below_sampled_indices = np.random.choice(below_indices, size=n_above, replace=False)
+
+    # Combine and return
+    selected_indices = np.sort(np.concatenate([above_indices, below_sampled_indices]))
+    reduced_matrix = intensities[selected_indices, :]
+
+    return selected_indices, reduced_matrix
+
+def process_for_cnn(rbps, rnas, intensities):
+    """Process the rbps and rnas sequences to onehot encodings, and sample data using the internal
+    sample_global_rowwise_by_percentile function. Sample intenseties over certain precentile.
+
+    Args:
+        rbps (pd.Series): protein seqeunces.
+        rnas (pd.Series): rna sequences.
+        intensities (nd.array): intensities matrix.
+
+    Returns:
+        _type_: _description_
+    """
+    selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1)
+    rbps = rbp_one_hot(rbps)
+    rnas = rnas.iloc[selected_indices]
+    rnas = rna_one_hot(rnas)
+    return rbps, rnas, intensities
+    

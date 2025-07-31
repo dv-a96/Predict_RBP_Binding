@@ -2,6 +2,7 @@
 
 import numpy as np
 from sklearn.model_selection import KFold
+import tensorflow as tf
 
 def split_k_fold(samples_num, k, excluded_indices=None, random_state=None):
     """
@@ -63,3 +64,32 @@ def exclude_indices(samples_num, exclude_num, random_state=None):
     excluded = rng.choice(samples_num, size=exclude_num, replace=False)
     return sorted(excluded)
 
+
+class RBP_RNA_PairDataset(tf.data.Dataset):
+    def __new__(cls, rbps, rnas, intensities=None):
+        n_rbps = rbps.shape[0]
+        n_rnas = rnas.shape[0]
+        L_rbp = rbps.shape[1]
+        L_rna = rnas.shape[1]
+        C = rbps.shape[2]
+
+        def generator():
+            for i in range(n_rbps):
+                for j in range(n_rnas):
+                    rbp = rbps[i]        # (L_rbp, C)
+                    rna = rnas[j]        # (L_rna, C)
+                    pair = tf.concat([rbp, rna], axis=0)  # (L_rbp + L_rna, C)
+
+                    if intensities is not None:
+                        label = intensities[j, i]  # RNA j, RBP i
+                    else:
+                        label = 0.0  # or tf.constant(0.0)
+
+                    yield pair, label
+
+        output_signature = (
+    tf.TensorSpec(shape=(L_rbp + L_rna, C), dtype=tf.float32),
+    tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
+)
+
+        return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
