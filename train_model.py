@@ -67,7 +67,7 @@ def train_k_fold(model_name, K = 10, exclude_num = None, seed = 42, batch_size =
         # Train model on this fold
         pass
     
-def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 1):
+def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 1, mlp_layers=[64]):
     logger = create_logger(f'train_{model_name}_heldout')
     logger.info(f"Starting training for model: {model_name} with training type: heldout")
     # Load and prepare training data
@@ -80,24 +80,49 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         train_indices = list(set(range(rbps_number)).difference(set(test_indices)))
     if model_name == "Combined_CNN":
         rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities)
-        model, call_backs = Combined_CNN(input_shape=(rbps.shape[1]+rnas.shape[1],20))
+        model, call_backs = Combined_CNN(input_shape=(rbps.shape[1]+rnas.shape[1],20),mlp_layers=mlp_layers)
         train_ds = RBP_RNA_Combined_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
         val_ds = RBP_RNA_Combined_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
     elif model_name == "separate_cnn":
         rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities)
         rnas = rnas[:,:,:4] # keep only the first 4 bits.
-        model,call_backs = separate_cnn(protein_shape=(rbps.shape[1],20),rna_shape=(rnas.shape[1],4))
+        model,call_backs = separate_cnn(protein_shape=(rbps.shape[1],20),rna_shape=(rnas.shape[1],4),mlp_layers=mlp_layers)
         train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
         val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
+    elif model_name == "MLP":
+        rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities)
+        rnas = rnas[:,:,:4] # keep only the first 4 bits.
+        rnas = rnas.reshape(rnas.shape[0],-1)
+        rbps = rbps.reshape(rbps.shape[0],-1)
+        model,call_backs = MLP_Model(input_shape=(rnas.shape[1]+rbps.shape[1],),mlp_layers=mlp_layers)
+        train_ds = RBP_RNA_ConcatDataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
+        val_ds = RBP_RNA_ConcatDataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
     
     
-    
-    train_ds = train_ds.shuffle(10000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    train_ds = train_ds.shuffle(batch_size).batch(batch_size).prefetch(tf.data.AUTOTUNE)
     val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     steps_per_epoch = rbps[train_indices].shape[0]*rnas.shape[0] // batch_size
     val_steps = rbps[test_indices].shape[0] * rnas.shape[0]  // batch_size
+    steps_per_epoch = max(steps_per_epoch,1000)
+    val_steps = max(val_steps,1000)
     model.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
 
+
+
+"""
+Check memory out of alocation
+
+batch_size = 128
+    while True:
+        try:
+            print(f"Trying batch_size={batch_size}")
+            model.fit(train_ds.batch(batch_size).take(1))  # just 1 step to test allocation
+            batch_size *= 2   # increase
+        except tf.errors.ResourceExhaustedError:
+            print(f"OOM at batch_size={batch_size}")
+            break"""
 if __name__ =="__main__":
     #train_k_fold("Combined_CNN")
-    train_held_out_test("separate_cnn")
+    train_held_out_test("MLP")
+    #print_model()
+    

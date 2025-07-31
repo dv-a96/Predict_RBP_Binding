@@ -328,4 +328,6 @@ def process_for_cnn(rbps, rnas, intensities):
     rnas = rnas.iloc[selected_indices]
     rnas = rna_one_hot(rnas)
     return rbps, rnas, intensities
-    
+
+
+

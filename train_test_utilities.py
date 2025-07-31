@@ -88,7 +88,7 @@ class RBP_RNA_Combined_Dataset(tf.data.Dataset):
                     yield pair, label
 
         output_signature = (
-    tf.TensorSpec(shape=(L_rbp + L_rna, C), dtype=tf.float32),
+    tf.TensorSpec(shape=(L_rbp + L_rna, C), dtype=tf.int8),
     tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
 )
 
@@ -118,9 +118,44 @@ class RBP_RNA_separate_Dataset(tf.data.Dataset):
 
         output_signature = (
             (
-                tf.TensorSpec(shape=(L_rbp, C_rbp), dtype=tf.float32),  # RBP branch
-                tf.TensorSpec(shape=(L_rna, C_rna), dtype=tf.float32)   # RNA branch
+                tf.TensorSpec(shape=(L_rbp, C_rbp), dtype=tf.int8),  # RBP branch
+                tf.TensorSpec(shape=(L_rna, C_rna), dtype=tf.int8)   # RNA branch
             ),
+            tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
+        )
+
+        return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
+    
+class RBP_RNA_ConcatDataset(tf.data.Dataset):
+    def __new__(cls, rbps, rnas, intensities=None):
+        """
+        rbps: (M, rbp_bits)
+        rnas: (N, rna_bits)
+        intensities: (N, M) labels matrix (optional)
+        """
+        n_rbps = rbps.shape[0]
+        n_rnas = rnas.shape[0]
+        rbp_bits = rbps.shape[1]
+        rna_bits = rnas.shape[1]
+
+        def generator():
+            for i in range(n_rbps):
+                for j in range(n_rnas):
+                    rbp = rbps[i]        # shape: (rbp_bits,)
+                    rna = rnas[j]        # shape: (rna_bits,)
+
+                    # concatenate protein & RNA into one long vector
+                    pair = tf.concat([rbp, rna], axis=0)  # shape: (rbp_bits + rna_bits,)
+
+                    if intensities is not None:
+                        label = intensities[j, i]  # RNA j, RBP i
+                    else:
+                        label = 0.0  # or tf.constant(0.0)
+
+                    yield pair, label
+
+        output_signature = (
+            tf.TensorSpec(shape=(rbp_bits + rna_bits,), dtype=tf.int8),
             tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
         )
 
