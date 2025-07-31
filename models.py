@@ -22,6 +22,17 @@ os.makedirs(tensorboard_dir, exist_ok=True)
 """ 
 1. Early stop based on training steps?
 2. Reduce LR based on training steps?
+3. Convert model compile and optizmiers so on to externall function avoid recoding.
+
+4. Proberating.
+5. ESM model.
+6. RNA embedded model.
+
+7. Model evalutions - compare losses, pearson r to test set, split test set.
+8. Intensities normalization.
+
+9. Additional features: ...
+10. Introduce Blossum bias!
 """
 
 
