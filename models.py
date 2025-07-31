@@ -115,7 +115,135 @@ def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector
     callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
     return network1, callbacksList
 
+def RNA_convolution(input_shape=(41, 4),
+                    activationFunc='relu',
+                    l2weight=0.0,
+                    l1weight=0.01,
+                    dropoutRate=0.25):
+    """
+    Builds an RNA convolutional block for short sequences (e.g. 43nt).
+    Returns: (input_tensor, output_tensor) so it can be integrated into a larger model.
+    """
 
+    # ---- Input ----
+    inputTensor = Input(shape=input_shape, name='RNA_sequence')
+
+    # ---- Branch 1: kernel size 7 ----
+    conv_k7 = layers.Conv1D(
+        filters=32,
+        kernel_size=7,
+        padding='same',
+        activation=activationFunc,
+        kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight),
+        name="conv_k7"
+    )(inputTensor)
+
+    pool_k7 = layers.MaxPooling1D(pool_size=2, strides=2, name="pool_k7")(conv_k7)
+    
+    # ---- Branch 2: kernel size 3 ----
+    conv_k3 = layers.Conv1D(
+        filters=32,
+        kernel_size=3,
+        padding='same',
+        activation=activationFunc,
+        kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight),
+        name="conv_k3"
+    )(inputTensor)
+
+    pool_k3 = layers.MaxPooling1D(pool_size=2, strides=2, name="pool_k3")(conv_k3)
+    
+
+    # ---- Merge branches ----
+    merged = layers.Concatenate(name="merge_k3_k7")([pool_k7, pool_k3])
+
+    # ---- Second convolution after merge ----
+    conv_merged = layers.Conv1D(
+        filters=64,
+        kernel_size=3,
+        padding='valid',
+        activation=activationFunc,
+        kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight),
+        name="conv_merged"
+    )(merged)
+
+    merged_pool = layers.MaxPooling1D(pool_size=4, strides=2, name="merged_pool")(conv_merged)
+    merged_drop = layers.Dropout(dropoutRate, name="merged_drop")(merged_pool)
+
+    # ---- Flatten output for integration ----
+    flat_output = layers.Flatten(name="rna_flatten")(merged_drop)
+    return inputTensor, flat_output
+
+def Protein_convolution(input_shape=(1000, 20),
+                    activationFunc='relu',
+                    l2weight=0.0,
+                    l1weight=0.01,
+                    dropoutRate=0.25):
+    inputTensor = Input(shape=input_shape, name='Protein_sequence')
+    
+    # --- Branch 1: Conv with kernel size 8 ---
+    conv_8 = layers.Conv1D(
+        filters=64,
+        kernel_size=8,
+        activation=activationFunc,
+        padding='same',
+        kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight),
+        name="conv_8"
+    )(inputTensor)
+
+    pool_8 = layers.MaxPooling1D(pool_size=2)(conv_8)
+    norm_8 = layers.BatchNormalization()(pool_8)
+    drop_8 = layers.Dropout(dropoutRate)(norm_8)
+
+    # --- Branch 2: Conv with kernel size 64 ---
+    conv_64 = layers.Conv1D(
+        filters=64,
+        kernel_size=64,
+        activation=activationFunc,
+        padding='same',
+        kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight),
+        name="conv_64"
+    )(inputTensor)
+
+    pool_64 = layers.MaxPooling1D(pool_size=2)(conv_64)
+    norm_64 = layers.BatchNormalization()(pool_64)
+    drop_64 = layers.Dropout(dropoutRate)(norm_64)
+
+    # --- Merge both branches ---
+    merged = layers.Concatenate(name="merge_conv8_conv64")([drop_8, drop_64])
+    x = layers.Conv1D(filters=128, kernel_size=3, activation=activationFunc, padding='valid',
+                      kernel_regularizer=regularizers.l1_l2(l1=l1weight, l2=l2weight))(merged)
+    x = layers.MaxPooling1D(pool_size=2)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(dropoutRate)(x)
+    x = layers.Flatten()(x)
+    return inputTensor,x
+
+def separate_cnn(protein_shape = (1000,20), rna_shape = (41,4), activationFunc='relu', plateauPatience=3,
+        earlyStopPatience=10, l2weight=0.0, l1weight=0.01, dropoutRate=0.5,
+        lossIdx=1, optimizerIdx=2, lrate=0.001):
+    if optimizerIdx == 1:
+        myOptimizer = optimizers.RMSprop(learning_rate=lrate)
+    elif optimizerIdx == 2:
+        myOptimizer = optimizers.Adam(learning_rate=lrate)
+    myOptimizer = get_optimizer(lrate=lrate)
+    myLoss = get_loss(lossIdx)
+    protein_tensor, flatten_protein = Protein_convolution(input_shape=protein_shape)
+    rna_tensor, flatten_rna = RNA_convolution(input_shape=rna_shape)
+    merged_features = layers.Concatenate(name="merge_protein_rna")([flatten_protein, flatten_rna])
+
+    # --- Dense layers after merge ---
+    dense1 = layers.Dense(128, activation=activationFunc, name="dense_1")(merged_features)
+    dense2 = layers.Dense(64, activation=activationFunc, name="dense_2")(dense1)
+
+    # --- Output layer (example: binary classification) ---
+    output = layers.Dense(1, activation='linear', name="output")(dense2)
+    
+    model = models.Model(inputs=[protein_tensor, rna_tensor], outputs=output)
+    model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
+    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard("Separate_cnn")
+    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
+    print(model.summary())
+    return model,callbacksList
 def Combined_CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=3,
         earlyStopPatience=10, l2weight=0.0, l1weight=0.01, dropoutRate=0.5,
         lossIdx=1, optimizerIdx=2, lrate=0.001):
@@ -150,7 +278,8 @@ def Combined_CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=
     
     checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard("CNN_model")
     callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
-    
+    print(model.summary())
+
     return model, callbacksList
 
 

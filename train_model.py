@@ -33,9 +33,9 @@ def train_k_fold(model_name, K = 10, exclude_num = None, seed = 42, batch_size =
         
         ### CNN:
         if model_name == 'Combined_CNN':
-            train_ds = RBP_RNA_PairDataset(fold_rbps_train, rnas, intensities=intensities_fold_train)
+            train_ds = RBP_RNA_Combined_Dataset(fold_rbps_train, rnas, intensities=intensities_fold_train)
             train_ds = train_ds.shuffle(10000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
-            val_ds = RBP_RNA_PairDataset(fold_rbps_validation, rnas, intensities=intensities_fold_validation)
+            val_ds = RBP_RNA_Combined_Dataset(fold_rbps_validation, rnas, intensities=intensities_fold_validation)
             val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
             steps_per_epoch = fold_rbps_train.shape[0]*rnas.shape[0] // batch_size
             val_steps = fold_rbps_validation.shape[0] * rnas.shape[0]  // batch_size
@@ -80,16 +80,24 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         train_indices = list(set(range(rbps_number)).difference(set(test_indices)))
     if model_name == "Combined_CNN":
         rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities)
-        combined_cnn, call_backs = Combined_CNN(input_shape=(rbps.shape[1]+rnas.shape[1],20))
-
-    train_ds = RBP_RNA_PairDataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
+        model, call_backs = Combined_CNN(input_shape=(rbps.shape[1]+rnas.shape[1],20))
+        train_ds = RBP_RNA_Combined_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
+        val_ds = RBP_RNA_Combined_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
+    elif model_name == "separate_cnn":
+        rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities)
+        rnas = rnas[:,:,:4] # keep only the first 4 bits.
+        model,call_backs = separate_cnn(protein_shape=(rbps.shape[1],20),rna_shape=(rnas.shape[1],4))
+        train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
+        val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
+    
+    
+    
     train_ds = train_ds.shuffle(10000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    val_ds = RBP_RNA_PairDataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
     val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     steps_per_epoch = rbps[train_indices].shape[0]*rnas.shape[0] // batch_size
     val_steps = rbps[test_indices].shape[0] * rnas.shape[0]  // batch_size
-    combined_cnn.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
+    model.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
 
 if __name__ =="__main__":
     #train_k_fold("Combined_CNN")
-    train_held_out_test("Combined_CNN")
+    train_held_out_test("separate_cnn")

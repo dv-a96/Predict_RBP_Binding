@@ -9,7 +9,8 @@ import warnings
 from logger_utils import create_logger
 
 # NOTE: 1. remove bad indexes from intensities.
-# NOTE: 
+# NOTE: Add processing description:
+""" 1. one hot coding: lengths and padding - zero, uniform"""
 
 def rna_one_hot(rna_df, max_length=41, pad_value=0):
     bases = ['A', 'C', 'G', 'U']
@@ -31,7 +32,7 @@ def rna_one_hot(rna_df, max_length=41, pad_value=0):
             one_hot = one_hot[:max_length]
         encoded_rnas.append(np.array(one_hot))
 
-    return np.array(encoded_rnas).transpose(0, 1, 2)
+    return np.array(encoded_rnas).transpose(0, 1, 2).astype(np.int8)
 
 
 
@@ -51,7 +52,7 @@ def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
             one_hot = one_hot[:max_length]
         encoded_proteins.append(np.array(one_hot))
 
-    return np.array(encoded_proteins).transpose(0, 1, 2)
+    return np.array(encoded_proteins).transpose(0, 1, 2).astype(np.int8)
 
 
 def convert_txt_to_fast(input_file):
@@ -146,7 +147,7 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
     intensities = pd.read_csv(rbps_rnas_binding_intensities,sep='\t',header=None)
     rbps = pd.read_csv(rbps_sequences,header=None)
     rnas = pd.read_csv(rna_sequences,header=None)
-    rnas, rna_bad_indexes = validate_rna_sequences(rnas,29,43,logger)
+    rnas, rna_bad_indexes = validate_rna_sequences(rnas,29,41,logger)
     if rna_bad_indexes: # remove them from intensities accordingly
         pass
     rbps, rbps_bad_indexes = validate_rbps_sequences(rbps, logger)

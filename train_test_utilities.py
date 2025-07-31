@@ -65,7 +65,7 @@ def exclude_indices(samples_num, exclude_num, random_state=None):
     return sorted(excluded)
 
 
-class RBP_RNA_PairDataset(tf.data.Dataset):
+class RBP_RNA_Combined_Dataset(tf.data.Dataset):
     def __new__(cls, rbps, rnas, intensities=None):
         n_rbps = rbps.shape[0]
         n_rnas = rnas.shape[0]
@@ -91,5 +91,37 @@ class RBP_RNA_PairDataset(tf.data.Dataset):
     tf.TensorSpec(shape=(L_rbp + L_rna, C), dtype=tf.float32),
     tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
 )
+
+        return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
+class RBP_RNA_separate_Dataset(tf.data.Dataset):
+    def __new__(cls, rbps, rnas, intensities=None):
+        n_rbps = rbps.shape[0]
+        n_rnas = rnas.shape[0]
+        L_rbp = rbps.shape[1]
+        L_rna = rnas.shape[1]
+        C_rbp = rbps.shape[2]
+        C_rna = rnas.shape[2]
+
+        def generator():
+            for i in range(n_rbps):
+                for j in range(n_rnas):
+                    rbp = rbps[i]        # shape: (L_rbp, C_rbp)
+                    rna = rnas[j]        # shape: (L_rna, C_rna)
+
+                    if intensities is not None:
+                        label = intensities[j, i]  # RNA j, RBP i
+                    else:
+                        label = 0.0  # or tf.constant(0.0)
+
+                    # Yield them as TWO separate tensors
+                    yield (rbp, rna), label
+
+        output_signature = (
+            (
+                tf.TensorSpec(shape=(L_rbp, C_rbp), dtype=tf.float32),  # RBP branch
+                tf.TensorSpec(shape=(L_rna, C_rna), dtype=tf.float32)   # RNA branch
+            ),
+            tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
+        )
 
         return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
