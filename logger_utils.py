@@ -1,7 +1,6 @@
 import logging
 import os
-from datetime import datetime
-
+from naming_utilities import timestamp
 def create_logger(model_name: str) -> logging.Logger:
     """
     Creates a logger that logs everything to a file and only warnings/errors to the console.
@@ -13,9 +12,10 @@ def create_logger(model_name: str) -> logging.Logger:
     Returns:
         logging.Logger: Configured logger instance.
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
+    
     log_filename = f"{model_name}_{timestamp}.log"
     log_path = os.path.join(log_dir, log_filename)
 

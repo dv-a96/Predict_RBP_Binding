@@ -94,12 +94,14 @@ class RBP_RNA_Combined_Dataset(tf.data.Dataset):
 
         return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
 class RBP_RNA_separate_Dataset(tf.data.Dataset):
-    def __new__(cls, rbps, rnas, intensities=None):
+    def __new__(cls, rbps, rnas, intensities=None,if_rbp_coding = True):
         n_rbps = rbps.shape[0]
         n_rnas = rnas.shape[0]
         L_rbp = rbps.shape[1]
         L_rna = rnas.shape[1]
-        C_rbp = rbps.shape[2]
+        if if_rbp_coding:
+            C_rbp = rbps.shape[2]
+        else: C_rbp=None
         C_rna = rnas.shape[2]
 
         def generator():
