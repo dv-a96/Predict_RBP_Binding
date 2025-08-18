@@ -123,13 +123,56 @@ def validate_intensities_values(intensities_df, logger = None):
     
     return intensities_df
 
-def preprocess_intensities(intensities_df, logger=None):
+def preprocess_intensities(intensities_df, logger=None , method=None, unit_length=True):
+    if method.lower() == 'quantile':
+        intensities_df = quantile_normalize(intensities_df)
+    elif method.lower() =='log':
+        intensities_df = log_normalization(intensities_df,logger)
+    else: method =''
+    logger.info(f"Normalization method: {method}")
+    if unit_length:
+        intensities_df = unit_scale(intensities_df)
+    logger.info(f"Unit scaling: {unit_length}")
     # negatives to zero?
     # Standarization/ Log transformation....
     return intensities_df
-    
+
+
+def quantile_normalize(df):
+    """
+    Quantile normalize a Pandas DataFrame (m rows, n cols).
+    Each column will end up with the same distribution.
+    """
+    # Sort each column
+    sorted_df = pd.DataFrame(
+        np.sort(df.values, axis=0),
+        index=df.index,
+        columns=df.columns
+    )
+    # Mean across columns for each row (rank)
+    rank_means = sorted_df.mean(axis=1).values
+    # Map the sorted means back to the original data's ranks
+    rank_dict = {rank: mean for rank, mean in enumerate(rank_means, start=1)}
+    normalized_df = df.rank(method='min').stack().astype(int).map(rank_dict).unstack()
+    return normalized_df
+
+def log_normalization(df,logger):
+
+    min_val = df.min().min()
+    if min_val <0:
+        logger.warning(f"doing log transformation on negative values: doing values - values.min() before")
+        df = df - min_val 
+    df = np.log1p(df)
+    return df
+
+
+def unit_scale(df):
+    X_normalized = df / np.linalg.norm(df, axis=0, keepdims=True)
+    return X_normalized
+
 def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_sequences = 'Data_sets/training_RBPs2.txt',
-                          rbps_rnas_binding_intensities = 'Data_sets/training_data2.txt.gz', logger=None):
+                          rbps_rnas_binding_intensities = 'Data_sets/training_data2.txt.gz', logger=None ,
+                          normalization_method = None):
     """Prepare training/testing data for the model.
 
     Args:
@@ -137,7 +180,7 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
         rbps_sequences (str, optional): Path to the RBPs sequences file. Defaults to 'Data_sets/training_RBPs2.txt'.
         rbps_rnas_binding_intensities (str, optional): Path to the RBPs-RNAs binding intensities file. Defaults to 'Data_sets/training_data2.txt.gz'.
         logger (_type_, optional): Logger instance for logging. Defaults to None.
-
+        normalization_method (str): How to normalize the intensities - log, quantile
     Returns:
         Tuple: (rnas, rbps, intensities) where:
             rnas (pd.DataFrame): DataFrame of validated RNA sequences.
@@ -153,12 +196,29 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
     rbps, rbps_bad_indexes = validate_rbps_sequences(rbps, logger)
     if rbps_bad_indexes: # remove them from intensities accordingly
         pass
-    intensities = preprocess_intensities(intensities, logger)
+    intensities = preprocess_intensities(intensities, logger,method=normalization_method)
     #rbps = np.array(rbps)
     #rnas = np.array(rnas)
     intensities = np.array(intensities)
     return rnas,rbps,intensities
 
+def get_ESM_prot_vecs(esm_vectors = '/home/dsi/lubosha/Predict_RBP_Binding/ESM/all_proteins_emb_vectors.csv.gz'):
+    esm_vecs = pd.read_csv(esm_vectors)
+    esm_vecs['protein_id']=esm_vecs['protein_id'].apply(lambda x: x[3:]).astype(int) - 1
+    esm_vecs.set_index('protein_id',inplace=True)
+    esm_vecs.sort_index(ascending=True,inplace=True)
+    return np.array(esm_vecs)
+
+def get_ESM_rna_vecs(esm_vectors = 'ESM/rnas_esm_embeddings.csv.gz'):
+    # files = [os.path.join(esm_vectors,file) for file in os.listdir(esm_vectors) if 'rna' in file]
+    # files = [pd.read_csv(file) for file in files]
+    # all_rnas = pd.concat(files)
+    # all_rnas['protein_id']=all_rnas['protein_id'].apply(lambda x: x[3:]).astype(int) - 1
+    # all_rnas.set_index('protein_id',inplace=True)
+    # all_rnas.sort_index(ascending=True,inplace=True)
+    all_rnas = pd.read_csv(esm_vectors,index_col='protein_id')
+    return np.array(all_rnas)
+    
 
 
 def fit_distribution_and_return_params(intensities_df: pd.DataFrame):
@@ -261,7 +321,8 @@ def fit_distribution_and_return_params(intensities_df: pd.DataFrame):
 #     return sampled_matrix, selected_rnas
 
 
-def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: float = 95, min_fraction: float = 0.5):
+def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: float = 95, min_fraction: float = 0.5,
+                                        get_all=False):
     """
     Sample RNA rows based on the fraction of values above a global percentile.
 
@@ -273,7 +334,7 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
         Global threshold percentile (default: 95)
     min_fraction : float
         Minimum fraction of values in a row that must be above threshold (default: 0.5)
-
+    
     Returns:
     -------
     selected_indices : np.ndarray
@@ -285,7 +346,8 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
     reduced_matrix : np.ndarray
         Subset of input matrix with selected rows only
     """
-    
+    if get_all:
+        return range(len(intensities)), intensities
     n_rnas, n_rbps = intensities.shape
     threshold = np.percentile(intensities, percentile)
 
@@ -311,7 +373,7 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
 
     return selected_indices, reduced_matrix
 
-def process_for_cnn(rbps, rnas, intensities):
+def process_for_cnn(rbps, rnas, intensities, get_all=False):
     """Process the rbps and rnas sequences to onehot encodings, and sample data using the internal
     sample_global_rowwise_by_percentile function. Sample intenseties over certain precentile.
 
@@ -323,9 +385,26 @@ def process_for_cnn(rbps, rnas, intensities):
     Returns:
         _type_: _description_
     """
-    selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1)
+    selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1,get_all=get_all)
     rbps = rbp_one_hot(rbps)
     rnas = rnas.iloc[selected_indices]
     rnas = rna_one_hot(rnas)
     return rbps, rnas, intensities
+
+
+def create_similar_matrix_from_mmseq2(similarity_output = 'Data_sets/similarity_train.tsv',col_value= 'pident'):
+    ids_sorted = [f'seq{i+1}'for i in range(200)]
+    cols = ["query","target","pident","alnlen","qlen","tlen","qcov","tcov","evalue","bits"]
+    df = pd.read_csv(similarity_output, sep="\t", names=cols)
     
+    mat = df.pivot(index="query", columns="target", values=col_value)
+    mat = mat.reindex(index=ids_sorted, columns=ids_sorted)
+
+    mat = mat.fillna(0.0)
+    mat.to_csv(f"{col_value}.csv")
+
+def get_simliary_dict(similarity_score='Data_sets/pident.csv', treshold=  80):
+    mat = pd.read_csv(similarity_score)
+    s = mat.where(mat > treshold).stack()
+    similariteis = {index:s.loc[index].to_dict() for index in mat.index}
+    return similariteis

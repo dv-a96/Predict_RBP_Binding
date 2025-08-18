@@ -6,12 +6,15 @@ import time
 
 def extract_embeddings(embedding_dir, output_csv, layer):
     data_rows = []
-
+    bad_paths = []
     for filename in os.listdir(embedding_dir):
         if filename.endswith(".pt"):
             filepath = os.path.join(embedding_dir, filename)
-            data = torch.load(filepath)
-
+            try:
+                data = torch.load(filepath)
+            except Exception as e:
+                print(e)
+                bad_paths.append(filename)
             # Use the protein label from the ESM output (taken from the FASTA header)
             protein_id = data["label"]
 
@@ -22,7 +25,9 @@ def extract_embeddings(embedding_dir, output_csv, layer):
             # Combine protein ID and vector
             row = [protein_id] + vec_np
             data_rows.append(row)
-
+    with open('error.txt','a') as f:
+        for file in bad_paths:
+            f.write(file + '\n')
     # Create column names: "protein_id", "f0", "f1", ..., "fn"
     embedding_dim = len(data_rows[0]) - 1
     columns = ["protein_id"] + [f"f{i}" for i in range(embedding_dim)]

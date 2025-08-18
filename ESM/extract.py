@@ -56,6 +56,7 @@ def create_parser():
         default=1022,
         help="truncate sequences longer than the given value",
     )
+    parser.add_argument('--remove_sequence',type=str, help='remove sequences from fasta file')
 
     parser.add_argument("--nogpu", action="store_true", help="Do not use GPU even if available")
     return parser
@@ -73,6 +74,18 @@ def run(args):
         print("Transferred model to GPU")
 
     dataset = FastaBatchedDataset.from_file(args.fasta_file)
+    if args.remove_sequence:
+        with open(args.remove_sequence,'r') as f:
+            remove_list = [line.strip() for line in f]    
+            remove_set = set(remove_list)
+        filtered_headers = []
+        filtered_sequences = []
+        for header, seq in zip(dataset.sequence_labels, dataset.sequence_strs):
+            if header not in remove_set: 
+                filtered_headers.append(header)
+                filtered_sequences.append(seq)
+        dataset = FastaBatchedDataset(filtered_headers, filtered_sequences)
+
     batches = dataset.get_batch_indices(args.toks_per_batch, extra_toks_per_seq=1)
     data_loader = torch.utils.data.DataLoader(
         dataset, collate_fn=alphabet.get_batch_converter(args.truncation_seq_length), batch_sampler=batches
