@@ -92,7 +92,7 @@ def get_callbacks(checkPtFile, tensorBoardDir, plateauPatience = 0,earlyStopPati
     return callbacksList
 
 def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector_length = 1024, plateauPatience = 3,
-                 earlyStopPatience = 10,  l2weight=0, l1weight=0.01, dropoutRate=0.5, 
+                 earlyStopPatience = 10,  l2weight=0.01, l1weight=0.01, dropoutRate=0.5, 
                  lossIdx=1,optimizerIdx=2, lrate=0.1):
     if activationFunc=='selu':
         myInitializer="lecun_normal"
@@ -133,7 +133,7 @@ def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector
 
 def RNA_convolution(input_shape=(41, 4),
                     activationFunc='relu',
-                    l2weight=0.0,
+                    l2weight=0.01,
                     l1weight=0.01,
                     dropoutRate=0.25):
     """
@@ -192,7 +192,7 @@ def RNA_convolution(input_shape=(41, 4),
 
 def Protein_convolution(input_shape=(1000, 20),
                     activationFunc='relu',
-                    l2weight=0.0,
+                    l2weight=0.01,
                     l1weight=0.01,
                     dropoutRate=0.25):
     inputTensor = Input(shape=input_shape, name='Protein_sequence')
@@ -229,7 +229,7 @@ def Protein_convolution(input_shape=(1000, 20),
 
 def separate_cnn(protein_shape = (1000,20), rna_shape = (41,4), activationFunc='relu', mlp_layers=[64],
                   plateauPatience=3,
-        earlyStopPatience=10, l2weight=0.0, l1weight=0.01, dropoutRate=0.5,
+        earlyStopPatience=10, l2weight=0.01, l1weight=0.01, dropoutRate=0.5,
         lossIdx=1, optimizerIdx=2, lrate=0.001):
     # if optimizerIdx == 1:
     #     myOptimizer = optimizers.RMSprop(learning_rate=lrate)
@@ -317,7 +317,7 @@ def Combined_CNN(input_shape=(1000, 20), activationFunc='relu', plateauPatience=
 
 
 
-def MLP_block(x, mlp_layers=[64], activationFunc='relu', l2weight=0.0, l1weight=0.01, dropoutRate=0.5):
+def MLP_block(x, mlp_layers=[64], activationFunc='relu', l2weight=0.01, l1weight=0.01, dropoutRate=0.5):
     """Builds the Dense layers of the MLP, returns the processed tensor (no input, no compile)."""
     x = layers.Flatten()(x)   # flatten if needed (optional if already flat)
     for layer_index, hidden_number in enumerate(mlp_layers):
@@ -331,50 +331,43 @@ def MLP_block(x, mlp_layers=[64], activationFunc='relu', l2weight=0.0, l1weight=
 
 
 def ESM_CNN(prot_input = (312,),rna_input = (41,4)):
-    params_dict = {
-        "dropout": 0.362233801349954,
-        "epochs": 78,
-        "batch" : 4096,
-        "regu": 5.7215002041656515e-06,
-        "hidden1" : 6029,
-        "hidden2" : 1168,
-        "filters1" : 2376,
-        "hidden_sec" : 152,
-        "filters_sec" : 151,
-        "leaky_alpha" : 0.23149394545024274,
-        "filters_long_length" : 24,
-        "filters_long" : 51
-    }
+    regu = 5.7215002041656515e-06
+    dropout =  0.362233801349954
     inputTensor = Input(shape=rna_input, name='RNA_Protein_Matrix')
-
-    conv_kernel_long = layers.Conv1D(params_dict["filters_long"], kernel_size=params_dict["filters_long_length"], activation='relu', use_bias=True,
-                              kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # Long kernel - its purpose is to identify structure preferences
-    conv_kernel_11 = layers.Conv1D(filters=params_dict["filters1"], kernel_size=11, activation='relu', use_bias=True,
-                            kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # kernel of 11 nucleotides
-    
-    conv_kernel_5 = layers.Conv1D(filters=params_dict["filters1"], kernel_size=5, activation='relu', use_bias=True,
-                           kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # kernel of 5 nucleotides
-    conv_kernel_5_sec = layers.Conv1D(filters=params_dict["filters_sec"], kernel_size=5, activation='relu', use_bias=True,
-                             kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor) # kernel of 5 nucleotides - second path
-
-    max_pool_long = layers.MaxPooling1D(pool_size=(40 - params_dict["filters_long_length"]))(conv_kernel_long)
-    max_pool_11 = layers.MaxPooling1D(pool_size=(31))(conv_kernel_11)
-   
-    max_pool_5 = layers.MaxPooling1D(pool_size=(37))(conv_kernel_5)
-    max_pool_5_sec = layers.MaxPooling1D(pool_size=(37))(conv_kernel_5_sec)
-    prot_tensor = Input(shape=prot_input, name='Protein_representation')
-    merge2 = layers.concatenate([max_pool_11,  max_pool_long,  max_pool_5]) #merge first path
+    conv_kernel_long = layers.Conv1D(51, kernel_size=24, activation='relu', use_bias=True,
+                              kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_11 = layers.Conv1D(filters=256, kernel_size=11, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_5 = layers.Conv1D(filters=256, kernel_size=5, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_3 = layers.Conv1D(filters=256, kernel_size=3, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    max_pool_long = layers.MaxPooling1D(pool_size=(10))(conv_kernel_long)
+    max_pool_11 = layers.MaxPooling1D(pool_size=(21))(conv_kernel_11)
+    max_pool_5 = layers.MaxPooling1D(pool_size=(27))(conv_kernel_5)
+    max_pool_3 = layers.MaxPooling1D(pool_size=(29))(conv_kernel_3)
+    merge2 = layers.concatenate([max_pool_11, max_pool_3,  max_pool_5,max_pool_long]) #merge first path
     fl_rel = layers.Flatten()(merge2) #Flatten layer
-    fl_sec = layers.Flatten()(max_pool_5_sec) #Flatten layer - second path
-    drop_fl_sec = layers.Dropout(params_dict["dropout"], name="drop_fl_el")(fl_sec) #Dropout
-    drop_flat = layers.Dropout(params_dict["dropout"], name="drop_flat")(fl_rel)
-    hidden_dense_sec = layers.Dense(params_dict["hidden_sec"], activation='relu')(drop_fl_sec)
-    hidden_dense_relu = layers.Dense(params_dict["hidden1"], activation='relu')(drop_flat)  # 4096
-    drop_hidden_dense_relu = layers.Dropout(params_dict["dropout"], name="drop_hidden_dense_relu")(hidden_dense_relu)
-    hidden_dense_relu1 = layers.Dense(params_dict["hidden2"], activation='relu')(drop_hidden_dense_relu)  # 1024 best
+    drop_flat = layers.Dropout(dropout, name="drop_flat")(fl_rel)
+    hidden_dense_relu = layers.Dense(512, activation='relu')(drop_flat)  # 4096
+    drop_hidden_dense_relu = layers.Dropout(dropout, name="drop_hidden_dense_relu")(hidden_dense_relu)
+    prot_tensor = Input(shape=prot_input, name='Protein_representation')
+    prot_ = layers.Flatten()(prot_tensor)
+    merge_4 = layers.concatenate([prot_, drop_hidden_dense_relu])
+    hidden_dense_relu_2 = layers.Dense(256, activation='relu')(merge_4)  # 4096
+    output = layers.Dense(1, activation='linear')(hidden_dense_relu_2)
+    model = models.Model(inputs=[prot_tensor,inputTensor], outputs=output)
+    myOptimizer = get_optimizer(2,0.001)
+    myLoss = get_loss(1)
+    model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
+    # prot
+    full_name = create_model_name("ESM_CNN","")
+    # Callbacks
+    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard(full_name)
+    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
+    print(model.summary())
+    return model, callbacksList
     
-    merge_4 = layers.concatenate([hidden_dense_sec, hidden_dense_relu1, drop_flat, hidden_dense_relu])
-
 def ESM_CNN_Oren(prot_input = (312,),rna_input = (41,4)):
     params_dict = {
         "dropout": 0.362233801349954,

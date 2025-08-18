@@ -108,6 +108,13 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         model,call_backs = ESM_CNN_Oren(prot_input=(rbps.shape[1],),rna_input=(41,4))
         train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices],if_rbp_coding=False)
         val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices],if_rbp_coding=False)
+    elif model_name == 'ESM_CNN':
+        rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities,get_all=False)
+        rbps = get_ESM_prot_vecs()
+        rnas = rnas[:,:,:4] # keep only the first 4 bits.
+        model,call_backs = ESM_CNN(prot_input=(rbps.shape[1],),rna_input=(41,4))
+        train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices],if_rbp_coding=False)
+        val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices],if_rbp_coding=False)
     elif model_name == 'probe_rating':
         rbps = get_ESM_prot_vecs()
         rnas = get_ESM_rna_vecs()
@@ -154,7 +161,9 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
     val_steps = rbps[test_indices].shape[0] * rnas.shape[0]  // batch_size +1
     steps_per_epoch = min(steps_per_epoch,500)
     val_steps = min(val_steps,500)
-    model.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
+    print(len(train_ds))
+    #model.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
+    model.fit(train_ds,epochs=5,steps_per_epoch=steps_per_epoch)
     preds = model.predict(val_ds,steps=val_steps)
     print(preds)
     
@@ -177,6 +186,6 @@ batch_size = 128
             break"""
 if __name__ =="__main__":
     #train_k_fold("Combined_CNN")
-    train_held_out_test("probe_rating")
+    train_held_out_test("ESM_CNN",exclude_num=199)
     #print_model()
     

@@ -101,9 +101,18 @@ class RBP_RNA_separate_Dataset(tf.data.Dataset):
         L_rna = rnas.shape[1]
         if if_rbp_coding:
             C_rbp = rbps.shape[2]
-        else: C_rbp=None
+            rbp_tensor = tf.TensorSpec(shape=(L_rbp, C_rbp), dtype=tf.int8)
+        else :  rbp_tensor = tf.TensorSpec(shape=(L_rbp, ), dtype=tf.float32)
+               
         C_rna = rnas.shape[2]
-
+        output_signature = (
+            (
+                
+                rbp_tensor,  # RBP branch
+                tf.TensorSpec(shape=(L_rna, C_rna), dtype=tf.int8)   # RNA branch
+            ),
+            tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
+        )
         def generator():
             for i in range(n_rbps):
                 for j in range(n_rnas):
@@ -118,13 +127,7 @@ class RBP_RNA_separate_Dataset(tf.data.Dataset):
                     # Yield them as TWO separate tensors
                     yield (rbp, rna), label
 
-        output_signature = (
-            (
-                tf.TensorSpec(shape=(L_rbp, C_rbp), dtype=tf.int8),  # RBP branch
-                tf.TensorSpec(shape=(L_rna, C_rna), dtype=tf.int8)   # RNA branch
-            ),
-            tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
-        )
+        
 
         return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
     
