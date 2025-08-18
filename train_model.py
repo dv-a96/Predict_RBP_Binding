@@ -161,11 +161,12 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
     val_steps = rbps[test_indices].shape[0] * rnas.shape[0]  // batch_size +1
     steps_per_epoch = min(steps_per_epoch,500)
     val_steps = min(val_steps,500)
-    print(len(train_ds))
+    #print(len(train_ds))
     #model.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
-    model.fit(train_ds,epochs=5,steps_per_epoch=steps_per_epoch)
-    preds = model.predict(val_ds,steps=val_steps)
-    print(preds)
+    model.fit(train_ds,epochs=5)
+    model.save("full_model_name.keras")
+    #preds = model.predict(val_ds,steps=val_steps)
+   # print(preds)
     
 
     #model.fit(train_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch)

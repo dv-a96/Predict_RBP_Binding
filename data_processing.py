@@ -4,8 +4,6 @@ Module to preprocess rbp and rna sequences, and rbp-rna binding intensities.
 import pandas as pd
 import re
 import numpy as np
-from Bio import SeqIO, pairwise2
-from Bio.SubsMat import MatrixInfo
 from scipy import stats
 import warnings
 from logger_utils import create_logger
@@ -394,15 +392,19 @@ def process_for_cnn(rbps, rnas, intensities, get_all=False):
     return rbps, rnas, intensities
 
 
-def get_alignment_score():
-    # Load BLOSUM62
-    matrix = MatrixInfo.blosum62
-    # Gap penalties (same as BLASTP defaults)
-    gap_open = -11
-    gap_extend = -1
-    # Example two sequences
-    seq1 = "MTEYKLVVVGAGGVGKSATLTIQLIQNHFVDEYDPT"
-    seq2 = "MTEYKLVVVGAGGVGKSTLT"
-    alignments = pairwise2.align.localds(seq1, seq2, matrix, gap_open, gap_extend)
-    # Best score
-    print("Best score:", alignments[0].score)
+def create_similar_matrix_from_mmseq2(similarity_output = 'Data_sets/similarity_train.tsv',col_value= 'pident'):
+    ids_sorted = [f'seq{i+1}'for i in range(200)]
+    cols = ["query","target","pident","alnlen","qlen","tlen","qcov","tcov","evalue","bits"]
+    df = pd.read_csv(similarity_output, sep="\t", names=cols)
+    
+    mat = df.pivot(index="query", columns="target", values=col_value)
+    mat = mat.reindex(index=ids_sorted, columns=ids_sorted)
+
+    mat = mat.fillna(0.0)
+    mat.to_csv(f"{col_value}.csv")
+
+def get_simliary_dict(similarity_score='Data_sets/pident.csv', treshold=  80):
+    mat = pd.read_csv(similarity_score)
+    s = mat.where(mat > treshold).stack()
+    similariteis = {index:s.loc[index].to_dict() for index in mat.index}
+    return similariteis
