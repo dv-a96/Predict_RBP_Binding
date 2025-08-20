@@ -2,6 +2,8 @@ import pandas as pd
 import csv
 import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
+import math
+from data_analysis import sub_plot_intensities_histo
 
 rbps = 'Data_sets/training_RBPs2.txt'
 intensities = 'Data_sets/training_data2.txt.gz'
@@ -143,4 +145,15 @@ def save_correlations(file_path, index_dict, sep="\t", out_dir="."):
 
 
 dup_dict = csv_to_dict('Data_sets/idx_remove_matches,csv')
-save_correlations('Data_sets/training_data2.txt',dup_dict, sep='\t', out_dir=Figures)
+df = pd.read_csv('Data_sets/training_data2.txt', header=None, sep='\t')
+print(df.shape)
+print(df.head)
+# save_correlations('Data_sets/training_data2.txt',dup_dict, sep='\t', out_dir=Figures)
+def plot_dup_histo(source_df, dup_dict):
+    indices = []
+    for key, value in dup_dict.items():
+        print("proccesing key: {}".format(key))
+        indices = [key] + list(value)
+        sub_plot_intensities_histo(data_frame=source_df, cols=indices, bins=200, figsize=(12, 8), name="duplicates protein {}".format(key))
+
+plot_dup_histo(source_df=df, dup_dict=dup_dict)

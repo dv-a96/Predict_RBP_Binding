@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import umap
 from sklearn.manifold import TSNE
-
+import math
 
 
 rbps = 'Data_sets/training_RBPs2.txt'
@@ -260,4 +260,41 @@ if __name__ == '__main__':
 
     plot_tsne_vs_umap(X_pca_150,processed=True)
     
-    
+def sub_plot_intensities_histo(data_frame, cols=None, bins=200, figsize=(12,8), name=''):
+    if isinstance(data_frame, str):
+        data_frame = pd.read_csv(data_frame)
+        
+    if cols is None:
+        cols = data_frame.select_dtypes(include="number").columns.tolist()
+    else:
+        cols = [data_frame.columns[c] if isinstance(c, int) else c for c in cols]
+
+    n_cols = len(cols)
+    nrows = math.ceil(n_cols / 3)
+    ncols = min(3, n_cols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+    axes = np.atleast_1d(axes).ravel()
+
+    # חשב גבולות אחידים
+    x_min = min(data_frame[col].min() for col in cols)
+    x_max = max(data_frame[col].max() for col in cols)
+
+    all_counts = [np.histogram(data_frame[col].dropna(), bins=bins)[0] for col in cols]
+    y_max = max(c.max() for c in all_counts)
+
+    for i, col in enumerate(cols):
+        axes[i].hist(data_frame[col].dropna(), bins=bins, color="steelblue", edgecolor="black")
+        axes[i].set_title(col, fontsize=10)
+        axes[i].set_xlabel("Value")
+        axes[i].set_ylabel("Frequency")
+        axes[i].set_xlim(x_min, x_max)
+        axes[i].set_ylim(0, y_max)
+
+    # הסתרת subplots מיותרים
+    for j in range(i+1, len(axes)):
+        axes[j].axis("off")
+
+    plt.tight_layout()
+    path = os.path.join(Figures, f'{name}_histogram.png')
+    plt.savefig(path, dpi=300)
