@@ -6,21 +6,90 @@ import numpy as np
 import os
 from scipy.stats import entropy
 import seaborn as sns
+import math
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-import umap
 from sklearn.manifold import TSNE
+from data_processing import quantile_normalize, clamp_by_precentile
 
 
 
-rbps = 'Data_sets/training_RBPs2.txt'
-intensities = 'Data_sets/training_data2.txt.gz'
-rnas = 'Data_sets/training_seqs.txt'
+# rbps = 'Data_sets/training_RBPs2.txt'
+# intensities = 'Data_sets/training_data2.txt.gz'
+# rnas = 'Data_sets/training_seqs.txt'
 Figures = 'Figures'
-# intensities
-intensities = pd.read_csv(intensities,sep='\t',header=None)
-rbps = pd.read_csv(rbps,header=None)
-rbps['Lengths'] = rbps[0].apply(lambda x: len(x))
+# # intensities
+# intensities = pd.read_csv(intensities,sep='\t',header=None)
+# rbps = pd.read_csv(rbps,header=None)
+# rbps['Lengths'] = rbps[0].apply(lambda x: len(x))
+# #intensities = clamp_by_precentile(intensities)
+# #intensities = quantile_normalize(intensities)
+
+
+
+
+def print_corrs(file='Evaluation/summ.csv'):
+    df = pd.read_csv(file)
+    cols = ['quantile_labels', 'ESM_CNN_Guas',  'esm_cnn_MSE',
+       'esm_cnn_MAE', 'esm_cnn_logcosh', 'esm_cnn_MAPE', 'esm_cnn_MSLE',
+       'esm_cnn_MSLE_RMSprop', 'esm_cnn_MSE_RMSprop',
+       'esm_cnn_logcosh_RMSprop', 'esm_cnn_MAPE_RMSprop',
+       'esm_cnn_MAE_RMSprop','only_rna64_MSE_Adam']
+    print(df[cols].corr()['quantile_labels'])
+
+def sub_plot_intensities_histo(data_frame, cols = None, bins = 200, figsize = (12,8), name = ''):
+    """Plot histograms of intensity distributions for specified columns.
+
+    Args:
+        data_frame (pd.DataFrame): DataFrame containing intensity data.
+        cols (list, optional): List of column names/indexes of columns to plot. Defaults to None.
+    """
+    if isinstance(data_frame,str):
+        data_frame = pd.read_csv(data_frame)
+    if cols is None:
+        cols = data_frame.select_dtypes(include="number").columns.tolist()
+    else:
+        # convert integer indices to column names if given
+        cols = [data_frame.columns[c] if isinstance(c, int) else c for c in cols]
+
+    n_cols = len(cols)
+    nrows = math.ceil(n_cols / 3)    # up to 3 plots per row
+    ncols = min(3, n_cols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+    axes = np.atleast_1d(axes).ravel()  # flatten to 1D array for easy indexing
+
+    for i, col in enumerate(cols):
+        axes[i].hist(data_frame[col].dropna(), bins=bins, color="steelblue", edgecolor="black")
+        axes[i].set_title(col, fontsize=10)
+        axes[i].set_xlabel("Value")
+        axes[i].set_ylabel("Frequency")
+
+    # Hide unused subplots
+    for j in range(i+1, len(axes)):
+        axes[j].axis("off")
+
+    plt.tight_layout()
+    path = os.path.join(Figures,f'{name}_historgram.png')
+    plt.savefig(path, dpi=300)
+
+
+
+
+def plot_intenseties_per_indice(indice =132):
+    global intensities
+    # intensities = clamp_by_precentile(intensities)
+    # intensities = quantile_normalize(intensities)
+    intensities_ = intensities.iloc[:,indice]
+    plot_histo(intensities_,f'indice_{indice}')
+def plot_histo(df,name):
+    plt.hist(df, bins=200)   # adjust bins as you like
+    plt.xlabel("Value")
+    plt.ylabel("Frequency")
+    plt.title("Histogram of values")
+    path = os.path.join(Figures,f'{name}_historgram.png')
+    plt.savefig(path,dpi=300)
+    plt.close()
 
 def plot_rbps_length_histogram(rbps_df):
     """
@@ -254,10 +323,12 @@ if __name__ == '__main__':
     # intensities_metrics_df = compute_rbp_binding_metrics(intensities)
     # intensities_metrics_df['RBP length'] = rbps['Lengths'] 
     # plot_len_correlations(intensities_metrics_df)
-    intensities_transformed = intensities.T
-    pca_data = run_pca(intensities_transformed,return_pca=True)
-    X_pca_150 = pca_data[:, :150]
+    # intensities_transformed = intensities.T
+    # pca_data = run_pca(intensities_transformed,return_pca=True)
+    # X_pca_150 = pca_data[:, :150]
 
-    plot_tsne_vs_umap(X_pca_150,processed=True)
-    
+    # plot_tsne_vs_umap(X_pca_150,processed=True)
+    print_corrs()
+    cols = ["quantile_labels","ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE","only_rna64_MSE_Adam"]
+    sub_plot_intensities_histo("Evaluation/summ.csv",cols=cols,name="Histo_ESM_OPT_LOSS")
     

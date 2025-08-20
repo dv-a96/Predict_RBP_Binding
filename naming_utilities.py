@@ -12,7 +12,7 @@ def create_model_name(model_name, mlp_layers):
     Returns:
         str: full name
     """
-    if model_name.lower() == 'probe_rating':
+    if model_name.lower() == 'probe_rating' or 'esm_cnn' in model_name.lower():
         mlp_layers = []
     full_name =  model_name.lower() + "_".join(str(x) for x in mlp_layers)
     return full_name

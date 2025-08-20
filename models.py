@@ -6,18 +6,10 @@ import tensorflow as tf
 from keras import models
 from keras import layers
 from keras import regularizers
-from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, TensorBoard
-import os
-from keras import optimizers
-from keras import Input
-from naming_utilities import timestamp, create_model_name
-from model_utilities import correlation_coefficient_loss
-base_dir = "Models"
-checkpoint_dir = os.path.join(base_dir, "Checkpoints")
-tensorboard_dir = os.path.join(base_dir, "TensorBoard")
 
-os.makedirs(checkpoint_dir, exist_ok=True)
-os.makedirs(tensorboard_dir, exist_ok=True)
+from keras import Input
+from naming_utilities import create_model_name
+from model_utilities import correlation_coefficient_loss,get_loss, get_callbacks, gaussian_nll, mse_from_mu,mae_from_mu, get_optimizer
 
 #### NOTE: Future addition:
 """ 
@@ -37,59 +29,8 @@ os.makedirs(tensorboard_dir, exist_ok=True)
 """
 
 
-def get_optimizer(optimizerIdx = 2, lrate = 0.1):
-    if optimizerIdx==1:
-        myOptimizer=optimizers.RMSprop(learning_rate=lrate, rho=0.9, epsilon=None, decay=0.0) 
-    elif optimizerIdx==2:
-        myOptimizer = optimizers.Adam(learning_rate=lrate, beta_1=0.9, beta_2=0.999,  amsgrad=False)
-    return myOptimizer
-
-def get_loss(lossIdx):
-    if lossIdx==1:
-        myLoss='mean_squared_error'
-    elif lossIdx==2:
-        myLoss='mean_absolute_percentage_error'
-    elif lossIdx==3:
-        myLoss='mean_squared_logarithmic_error'
-    elif lossIdx==4:
-        myLoss='logcosh'
-    return myLoss
 
 
-def init_checkpoint_and_tensorboard(model_name):
-    """Initialize checkpoint and TensorBoard directories with model name and timestamp."""
-    # Optional: add timestamp and model name to distinguish runs
-    global checkpoint_dir, tensorboard_dir
-    
-    checkpoint_dir = os.path.join(checkpoint_dir, f"{model_name}")
-    tensorboard_dir = os.path.join(tensorboard_dir, f"{model_name}")
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    os.makedirs(tensorboard_dir, exist_ok=True)
-    checkpoint_dir = os.path.join(checkpoint_dir, f"{model_name}_{timestamp}.keras")
-    tensorboard_dir = os.path.join(tensorboard_dir, f"{model_name}_{timestamp}")
-    return checkpoint_dir, tensorboard_dir
-
-def get_callbacks(checkPtFile, tensorBoardDir, plateauPatience = 0,earlyStopPatience = 0):
-    """Generated a callback list with checkpoint, reduce lr and tensorboard
-
-    Args:
-        checkPtFile (str): path to checkpoint folder
-        tensorBoardDir (str): path to tensorboard folder
-        plateauPatience (int, optional): number of epo. Defaults to 3.
-    """
-    #NOTE: No early stoping and reduce plateu due to 1 epoch training.
-    # EarlyStopping(monitor="val_loss", patience=earlyStopPatience),
-    # ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=1e-6),
-    callbacksList = [
-        ModelCheckpoint(filepath=checkPtFile, verbose=1, monitor="val_loss", save_best_only=True),
-        
-        TensorBoard(tensorBoardDir, histogram_freq=0, embeddings_freq=0, update_freq=10)
-    ]
-    if plateauPatience:
-        callbacksList.append(ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=plateauPatience, min_lr=1e-6))
-    if earlyStopPatience:
-        callbacksList.append(EarlyStopping(monitor="val_loss", patience=earlyStopPatience))
-    return callbacksList
 
 def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector_length = 1024, plateauPatience = 3,
                  earlyStopPatience = 10,  l2weight=0.01, l1weight=0.01, dropoutRate=0.5, 
@@ -330,17 +271,18 @@ def MLP_block(x, mlp_layers=[64], activationFunc='relu', l2weight=0.01, l1weight
 
 
 
-def ESM_CNN(prot_input = (312,),rna_input = (41,4)):
+def ESM_CNN(prot_input = (312,),rna_input = (41,4),loss_idx= 1, check_points_folder = None, tensorboard_folder = None,
+            opt_idx = 2):
     regu = 5.7215002041656515e-06
     dropout =  0.362233801349954
     inputTensor = Input(shape=rna_input, name='RNA_Protein_Matrix')
     conv_kernel_long = layers.Conv1D(51, kernel_size=24, activation='relu', use_bias=True,
                               kernel_regularizer=regularizers.l2(regu))(inputTensor)
-    conv_kernel_11 = layers.Conv1D(filters=256, kernel_size=11, activation='relu', use_bias=True,
+    conv_kernel_11 = layers.Conv1D(filters=512, kernel_size=11, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
-    conv_kernel_5 = layers.Conv1D(filters=256, kernel_size=5, activation='relu', use_bias=True,
+    conv_kernel_5 = layers.Conv1D(filters=512, kernel_size=5, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
-    conv_kernel_3 = layers.Conv1D(filters=256, kernel_size=3, activation='relu', use_bias=True,
+    conv_kernel_3 = layers.Conv1D(filters=512, kernel_size=3, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
     max_pool_long = layers.MaxPooling1D(pool_size=(10))(conv_kernel_long)
     max_pool_11 = layers.MaxPooling1D(pool_size=(21))(conv_kernel_11)
@@ -349,25 +291,97 @@ def ESM_CNN(prot_input = (312,),rna_input = (41,4)):
     merge2 = layers.concatenate([max_pool_11, max_pool_3,  max_pool_5,max_pool_long]) #merge first path
     fl_rel = layers.Flatten()(merge2) #Flatten layer
     drop_flat = layers.Dropout(dropout, name="drop_flat")(fl_rel)
-    hidden_dense_relu = layers.Dense(512, activation='relu')(drop_flat)  # 4096
+    hidden_dense_relu = layers.Dense(256, activation='relu')(drop_flat)  # 4096
     drop_hidden_dense_relu = layers.Dropout(dropout, name="drop_hidden_dense_relu")(hidden_dense_relu)
     prot_tensor = Input(shape=prot_input, name='Protein_representation')
     prot_ = layers.Flatten()(prot_tensor)
     merge_4 = layers.concatenate([prot_, drop_hidden_dense_relu])
-    hidden_dense_relu_2 = layers.Dense(256, activation='relu')(merge_4)  # 4096
+    hidden_dense_relu_2 = layers.Dense(128, activation='relu')(merge_4)  # 4096
     output = layers.Dense(1, activation='linear')(hidden_dense_relu_2)
     model = models.Model(inputs=[prot_tensor,inputTensor], outputs=output)
-    myOptimizer = get_optimizer(2,0.001)
-    myLoss = get_loss(1)
+    myOptimizer = get_optimizer(opt_idx,0.001)
+    myLoss = get_loss(loss_idx)
     model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
     # prot
-    full_name = create_model_name("ESM_CNN","")
-    # Callbacks
-    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard(full_name)
-    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
+    
+    callbacksList = get_callbacks(check_points_folder,tensorboard_folder)
     print(model.summary())
     return model, callbacksList
+
+def Only_RNA(rna_input = (41,4),loss_idx= 1, check_points_folder = None, tensorboard_folder = None,
+            opt_idx = 2):
+    regu = 5.7215002041656515e-06
+    dropout =  0.362233801349954
+    inputTensor = Input(shape=rna_input, name='RNA_Protein_Matrix')
+    conv_kernel_long = layers.Conv1D(51, kernel_size=24, activation='relu', use_bias=True,
+                              kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_11 = layers.Conv1D(filters=512, kernel_size=11, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_5 = layers.Conv1D(filters=512, kernel_size=5, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_3 = layers.Conv1D(filters=512, kernel_size=3, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    max_pool_long = layers.MaxPooling1D(pool_size=(10))(conv_kernel_long)
+    max_pool_11 = layers.MaxPooling1D(pool_size=(21))(conv_kernel_11)
+    max_pool_5 = layers.MaxPooling1D(pool_size=(27))(conv_kernel_5)
+    max_pool_3 = layers.MaxPooling1D(pool_size=(29))(conv_kernel_3)
+    merge2 = layers.concatenate([max_pool_11, max_pool_3,  max_pool_5,max_pool_long]) #merge first path
+    fl_rel = layers.Flatten()(merge2) #Flatten layer
+    drop_flat = layers.Dropout(dropout, name="drop_flat")(fl_rel)
+    hidden_dense_relu = layers.Dense(256, activation='relu')(drop_flat)  # 4096
+    drop_hidden_dense_relu = layers.Dropout(dropout, name="drop_hidden_dense_relu")(hidden_dense_relu)
     
+    
+    hidden_dense_relu_2 = layers.Dense(128, activation='relu')(drop_hidden_dense_relu)  # 4096
+    output = layers.Dense(1, activation='linear')(hidden_dense_relu_2)
+    model = models.Model(inputs=inputTensor, outputs=output)
+    myOptimizer = get_optimizer(opt_idx,0.001)
+    myLoss = get_loss(loss_idx)
+    model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
+    # prot
+    
+    callbacksList = get_callbacks(check_points_folder,tensorboard_folder)
+    print(model.summary())
+    return model, callbacksList
+
+def ESM_CNN_Guasian(prot_input = (312,),rna_input = (41,4),loss_idx= 1, check_points_folder = None, tensorboard_folder = None,
+                    opt_idx = 2):
+    regu = 5.7215002041656515e-06
+    dropout =  0.362233801349954
+    inputTensor = Input(shape=rna_input, name='RNA_Protein_Matrix')
+    conv_kernel_long = layers.Conv1D(51, kernel_size=24, activation='relu', use_bias=True,
+                              kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_11 = layers.Conv1D(filters=512, kernel_size=11, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_5 = layers.Conv1D(filters=512, kernel_size=5, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_3 = layers.Conv1D(filters=512, kernel_size=3, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    max_pool_long = layers.MaxPooling1D(pool_size=(10))(conv_kernel_long)
+    max_pool_11 = layers.MaxPooling1D(pool_size=(21))(conv_kernel_11)
+    max_pool_5 = layers.MaxPooling1D(pool_size=(27))(conv_kernel_5)
+    max_pool_3 = layers.MaxPooling1D(pool_size=(29))(conv_kernel_3)
+    merge2 = layers.concatenate([max_pool_11, max_pool_3,  max_pool_5,max_pool_long]) #merge first path
+    fl_rel = layers.Flatten()(merge2) #Flatten layer
+    drop_flat = layers.Dropout(dropout, name="drop_flat")(fl_rel)
+    hidden_dense_relu = layers.Dense(256, activation='relu')(drop_flat)  # 4096
+    drop_hidden_dense_relu = layers.Dropout(dropout, name="drop_hidden_dense_relu")(hidden_dense_relu)
+    prot_tensor = Input(shape=prot_input, name='Protein_representation')
+    prot_ = layers.Flatten()(prot_tensor)
+    merge_4 = layers.concatenate([prot_, drop_hidden_dense_relu])
+    hidden_dense_relu_2 = layers.Dense(128, activation='relu')(merge_4)  # 4096
+    mu = layers.Dense(1, name="mu")(hidden_dense_relu_2)              # linear
+    log_var = layers.Dense(1, name="log_var")(hidden_dense_relu_2)    # linear (no activation)   
+    y_pred = layers.Concatenate()([mu, log_var]) 
+    model = models.Model(inputs=[prot_tensor,inputTensor], outputs=y_pred)
+    myOptimizer = get_optimizer(opt_idx,0.001)
+    
+    model.compile(optimizer=myOptimizer, loss=gaussian_nll, metrics=[mse_from_mu,mae_from_mu])
+    # prot
+    
+    callbacksList = get_callbacks(check_points_folder,tensorboard_folder)
+    print(model.summary())
+    return model, callbacksList
 def ESM_CNN_Oren(prot_input = (312,),rna_input = (41,4)):
     params_dict = {
         "dropout": 0.362233801349954,

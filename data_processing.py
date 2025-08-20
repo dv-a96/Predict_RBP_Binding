@@ -137,6 +137,16 @@ def preprocess_intensities(intensities_df, logger=None , method=None, unit_lengt
     # Standarization/ Log transformation....
     return intensities_df
 
+def clamp_by_precentile(df,precentile = 99.5):
+    cutoffs = df.apply(lambda col: np.percentile(col, precentile)).to_numpy()
+    df_clamped = df.apply(lambda col: np.minimum(col, np.percentile(col, precentile)))
+    max_after = df_clamped.max().to_numpy()
+    print(cutoffs,max_after)
+    if np.array_equal(cutoffs,max_after):
+        print('prenctile clamp worked')
+    else: print('prenctile clamp did not work')
+    return df_clamped
+
 
 def quantile_normalize(df):
     """
@@ -196,7 +206,7 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
     rbps, rbps_bad_indexes = validate_rbps_sequences(rbps, logger)
     if rbps_bad_indexes: # remove them from intensities accordingly
         pass
-    intensities = preprocess_intensities(intensities, logger,method=normalization_method)
+    intensities = preprocess_intensities(intensities, logger,method=normalization_method,unit_length=False)
     #rbps = np.array(rbps)
     #rnas = np.array(rnas)
     intensities = np.array(intensities)
@@ -275,50 +285,6 @@ def fit_distribution_and_return_params(intensities_df: pd.DataFrame):
 
     return pd.DataFrame(results)
 
-# def sample_percentile_by_rbp(intensities: pd.DataFrame, percentile: float = 99):
-#     """
-#     For each RBP (column) in the RNA x RBP intensity matrix:
-#     - Select all RNAs with intensities above the given percentile.
-#     - Randomly sample an equal number of RNAs from the rest (≤ percentile).
-#     - Return:
-#         - A reduced intensity matrix with all selected RNAs (union of both sets).
-#         - Dicts of indices per RBP for both groups.
-
-#     Parameters:
-#     ----------
-#     intensities : pd.DataFrame
-#         RNA (rows) × RBP (columns) binding intensity matrix.
-#     percentile : float
-#         Percentile threshold (default is 95).
-
-#     Returns:
-#     -------
-#     sampled_matrix : pd.DataFrame
-#         Reduced matrix with only selected RNAs.
-#     selected_rnas
-#     """
-#     if isinstance(intensities,np.ndarray):
-#         intensities=pd.DataFrame(intensities)
-#         selected_rna_indices = set()
-
-#     for rbp in intensities.columns:
-#         col = intensities[rbp]
-#         threshold = np.percentile(col, percentile)
-#         above = col[col > threshold]
-#         below = col[col <= threshold]
-
-#         n_above = len(above)
-#         if n_above == 0 or len(below) < n_above:
-#             continue
-#         sampled_below = np.random.choice(below.index, size=n_above, replace=False)
-#         selected_rna_indices.update(above.index)
-#         selected_rna_indices.update(sampled_below)
-
-#     selected_rnas = list(selected_rna_indices)
-#     sampled_matrix = intensities.loc[selected_rnas]
-#     sampled_matrix = sampled_matrix.loc[intensities.index.intersection(sampled_matrix.index)]
-
-#     return sampled_matrix, selected_rnas
 
 
 def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: float = 95, min_fraction: float = 0.5,
@@ -373,23 +339,23 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
 
     return selected_indices, reduced_matrix
 
-def process_for_cnn(rbps, rnas, intensities, get_all=False):
-    """Process the rbps and rnas sequences to onehot encodings, and sample data using the internal
-    sample_global_rowwise_by_percentile function. Sample intenseties over certain precentile.
+# def process_for_cnn(rbps, rnas, intensities, get_all=False):
+#     """Process the rbps and rnas sequences to onehot encodings, and sample data using the internal
+#     sample_global_rowwise_by_percentile function. Sample intenseties over certain precentile.
 
-    Args:
-        rbps (pd.Series): protein seqeunces.
-        rnas (pd.Series): rna sequences.
-        intensities (nd.array): intensities matrix.
+#     Args:
+#         rbps (pd.Series): protein seqeunces.
+#         rnas (pd.Series): rna sequences.
+#         intensities (nd.array): intensities matrix.
 
-    Returns:
-        _type_: _description_
-    """
-    selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1,get_all=get_all)
-    rbps = rbp_one_hot(rbps)
-    rnas = rnas.iloc[selected_indices]
-    rnas = rna_one_hot(rnas)
-    return rbps, rnas, intensities
+#     Returns:
+#         _type_: _description_
+#     """
+#     #selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1,get_all=get_all)
+#     rbps = rbp_one_hot(rbps)
+#     #rnas = rnas.iloc[selected_indices]sample_global_rowwise_by_percentile
+#     rnas = rna_one_hot(rnas)
+#     return rbps, rnas, intensities
 
 
 def create_similar_matrix_from_mmseq2(similarity_output = 'Data_sets/similarity_train.tsv',col_value= 'pident'):

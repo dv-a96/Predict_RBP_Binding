@@ -20,3 +20,10 @@ Im not realy read off all this papers but some sound interesting:
 3. using APBS to predict electrostatic charge.
 **this values should be checked with corelations to the rna intensities**
 
+
+# process:
+We got the same predicted values with model training, thus we want to rescale the data to induce numeric stability.
+We followed Proberating processing by quantile normalizing and then scaling that vectors to have a unit length. 
+We belive this values are too small to effect model convergance via mse. Thus we only qunatile normalized the vecotrs. When scaling to uni length the model performance was worse.
+
+
