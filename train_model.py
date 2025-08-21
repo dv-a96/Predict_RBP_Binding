@@ -129,7 +129,7 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
                                    loss_idx=loss_idx,opt_idx=opt_idx)
         #train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices],if_rbp_coding=False)
         #val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices],if_rbp_coding=False)
-    elif model_name == "Only_RNA":
+    elif model_name == "Only_RNA_sec":
         rnas = rna_one_hot(rnas)
         rnas = rnas[:,:,:4]
         model,call_backs = Only_RNA(rna_input=(41,4),loss_idx=loss_idx,
@@ -228,6 +228,8 @@ batch_size = 128
             break"""
 if __name__ =="__main__":
     #train_k_fold("Combined_CNN")
-    train_held_out_test("Only_RNA",exclude_num=199)
-    #print_model()
+    train_held_out_test("Only_RNA_sec",exclude_num=199,loss_idx=4,opt_idx=1)
+    train_held_out_test("Only_RNA_sec",exclude_num=199,loss_idx=5,opt_idx=2)
+
+        #print_model()
     

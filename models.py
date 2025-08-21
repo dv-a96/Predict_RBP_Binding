@@ -317,22 +317,41 @@ def Only_RNA(rna_input = (41,4),loss_idx= 1, check_points_folder = None, tensorb
                               kernel_regularizer=regularizers.l2(regu))(inputTensor)
     conv_kernel_11 = layers.Conv1D(filters=512, kernel_size=11, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_9 = layers.Conv1D(filters=512, kernel_size=9, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)  # kernel of 9 nucleotides
+    conv_kernel_7 = layers.Conv1D(filters=512, kernel_size=7, activation='relu', use_bias=True,
+                           kernel_regularizer=regularizers.l2(regu))(inputTensor)  # kernel of 7 nucleotides
     conv_kernel_5 = layers.Conv1D(filters=512, kernel_size=5, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
     conv_kernel_3 = layers.Conv1D(filters=512, kernel_size=3, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    conv_kernel_5_sec = layers.Conv1D(filters=151, kernel_size=5, activation='relu', use_bias=True,
+                             kernel_regularizer=regularizers.l2(regu))(inputTensor) # kernel of 5 nucleotides - second path
+
     max_pool_long = layers.MaxPooling1D(pool_size=(10))(conv_kernel_long)
     max_pool_11 = layers.MaxPooling1D(pool_size=(21))(conv_kernel_11)
+    max_pool_9 = layers.MaxPooling1D(pool_size=(23))(conv_kernel_9)
+    max_pool_7 = layers.MaxPooling1D(pool_size=(25))(conv_kernel_7)
     max_pool_5 = layers.MaxPooling1D(pool_size=(27))(conv_kernel_5)
     max_pool_3 = layers.MaxPooling1D(pool_size=(29))(conv_kernel_3)
-    merge2 = layers.concatenate([max_pool_11, max_pool_3,  max_pool_5,max_pool_long]) #merge first path
+    max_pool_5_sec = layers.MaxPooling1D(pool_size=(27))(conv_kernel_5_sec)
+    
+    
+    
+    
+    merge2 = layers.concatenate([max_pool_11, max_pool_3,  max_pool_5,max_pool_long,max_pool_9,max_pool_7]) #merge first path
     fl_rel = layers.Flatten()(merge2) #Flatten layer
+    fl_sec = layers.Flatten()(max_pool_5_sec) #Flatten layer - second path
+
     drop_flat = layers.Dropout(dropout, name="drop_flat")(fl_rel)
+    drop_fl_sec = layers.Dropout(dropout, name="drop_fl_el")(fl_sec) #Dropout
+
     hidden_dense_relu = layers.Dense(256, activation='relu')(drop_flat)  # 4096
+    hidden_dense_sec = layers.Dense(152, activation='relu')(drop_fl_sec)
     drop_hidden_dense_relu = layers.Dropout(dropout, name="drop_hidden_dense_relu")(hidden_dense_relu)
+    merge3 = layers.concatenate([hidden_dense_sec, drop_hidden_dense_relu]) #merge first and second path
     
-    
-    hidden_dense_relu_2 = layers.Dense(128, activation='relu')(drop_hidden_dense_relu)  # 4096
+    hidden_dense_relu_2 = layers.Dense(128, activation='relu')(merge3)  # 4096
     output = layers.Dense(1, activation='linear')(hidden_dense_relu_2)
     model = models.Model(inputs=inputTensor, outputs=output)
     myOptimizer = get_optimizer(opt_idx,0.001)
@@ -353,6 +372,7 @@ def ESM_CNN_Guasian(prot_input = (312,),rna_input = (41,4),loss_idx= 1, check_po
                               kernel_regularizer=regularizers.l2(regu))(inputTensor)
     conv_kernel_11 = layers.Conv1D(filters=512, kernel_size=11, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
+    
     conv_kernel_5 = layers.Conv1D(filters=512, kernel_size=5, activation='relu', use_bias=True,
                            kernel_regularizer=regularizers.l2(regu))(inputTensor)
     conv_kernel_3 = layers.Conv1D(filters=512, kernel_size=3, activation='relu', use_bias=True,

@@ -93,7 +93,7 @@ def get_loss(lossIdx):
     elif lossIdx==3:
         myLoss='mean_squared_logarithmic_error'
     elif lossIdx==4:
-        myLoss='logcosh'
+        myLoss='log_cosh'
     elif lossIdx==5:
         myLoss= 'mean_absolute_error'
     return myLoss

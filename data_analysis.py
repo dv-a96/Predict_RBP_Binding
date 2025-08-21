@@ -25,19 +25,81 @@ Figures = 'Figures'
 # #intensities = clamp_by_precentile(intensities)
 # #intensities = quantile_normalize(intensities)
 
+def overlay_label_feature_histograms(df, label_col, feature_cols=None, bins=30, figsize=(12, 8),corr_values = None):
+    """
+    For each feature column, create a subplot with two histograms:
+    - histogram of the feature's values
+    - histogram of the label column's values (overlayed)
 
+    Args:
+        df (pd.DataFrame): dataset
+        label_col (str): name of label column (continuous)
+        feature_cols (list[str] or None): feature columns to compare against the label.
+                                          If None, use all numeric except label_col.
+        bins (int): number of bins
+        figsize (tuple): figure size
+    """
+    if isinstance(df, str):
+        df = pd.read_csv(df)
+    if feature_cols is None:
+        feature_cols = df.select_dtypes(include="number").columns.tolist()
+        if label_col in feature_cols:
+            feature_cols.remove(label_col)
 
+    n = len(feature_cols)
+    ncols = 3
+    nrows = math.ceil(n / ncols)
 
-def print_corrs(file='Evaluation/summ.csv'):
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+    axes = np.atleast_1d(axes).ravel()
+
+    label_values = df[label_col].dropna()
+
+    for i, col in enumerate(feature_cols):
+        ax = axes[i]
+
+        feat_values = df[col].dropna()
+        uniq_count = feat_values.nunique()   # number of unique values
+
+        # get correlation value if provided
+        if corr_values is not None and col in corr_values:
+            corr_text = f"R={corr_values[col]:.3f}, unique={uniq_count}"
+        else:
+            corr_text = f"unique={uniq_count}"
+        # compute common bin edges across both distributions
+        all_vals = np.concatenate([label_values, feat_values])
+        bin_edges = np.linspace(all_vals.min(), all_vals.max(), bins+1)
+        feat_label = f"{col}\n{corr_text}"
+        ax.hist(feat_values, bins=bin_edges, alpha=0.6, color="steelblue", label=feat_label)
+        ax.hist(label_values, bins=bin_edges, alpha=0.4, color="orange", label=label_col)
+       
+        ax.set_title(col)
+        ax.set_xlabel("Value")
+        ax.set_ylabel("Count")
+        ax.legend()
+
+    # Hide unused axes
+    for j in range(i+1, len(axes)):
+        axes[j].axis("off")
+
+    fig.tight_layout()
+    temp_path = os.path.join(Figures, f"overlay_label_histograms_{label_col}.png")
+    plt.savefig(temp_path, dpi=300)
+    plt.close(fig)
+
+def get_corr(file='Evaluation/summ.csv',cols = None):
     df = pd.read_csv(file)
-    cols = ['quantile_labels', 'ESM_CNN_Guas',  'esm_cnn_MSE',
-       'esm_cnn_MAE', 'esm_cnn_logcosh', 'esm_cnn_MAPE', 'esm_cnn_MSLE',
-       'esm_cnn_MSLE_RMSprop', 'esm_cnn_MSE_RMSprop',
-       'esm_cnn_logcosh_RMSprop', 'esm_cnn_MAPE_RMSprop',
-       'esm_cnn_MAE_RMSprop','only_rna64_MSE_Adam']
-    print(df[cols].corr()['quantile_labels'])
+    if cols is None:
+        cols = df.select_dtypes(include="number").columns.tolist()
+    else:
+        # convert integer indices to column names if given
+        cols = [df.columns[c] if isinstance(c, int) else c for c in cols]
+    print("Correlation matrix for selected columns:")
+    corr = df[cols].corr()['quantile_labels']
+    print(corr)
+    return corr
 
-def sub_plot_intensities_histo(data_frame, cols = None, bins = 200, figsize = (12,8), name = ''):
+def sub_plot_intensities_histo(data_frame, cols = None, bins = 500, name = '',corr_values = None):
     """Plot histograms of intensity distributions for specified columns.
 
     Args:
@@ -56,12 +118,19 @@ def sub_plot_intensities_histo(data_frame, cols = None, bins = 200, figsize = (1
     nrows = math.ceil(n_cols / 3)    # up to 3 plots per row
     ncols = min(3, n_cols)
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols*4, nrows*5))
     axes = np.atleast_1d(axes).ravel()  # flatten to 1D array for easy indexing
 
     for i, col in enumerate(cols):
         axes[i].hist(data_frame[col].dropna(), bins=bins, color="steelblue", edgecolor="black")
         axes[i].set_title(col, fontsize=10)
+        axes[i].text(
+            0.5, 0.9,                                      # (x,y) in axes coords
+            f"R: {corr_values[col]:.3f}" if corr_values is not None else "",
+            ha="center", va="top",                         # centered horizontally, anchored at top
+            transform=axes[i].transAxes,                   # <- use axis-relative coords
+            fontsize=9, color="darkred"
+        )        
         axes[i].set_xlabel("Value")
         axes[i].set_ylabel("Frequency")
 
@@ -328,7 +397,14 @@ if __name__ == '__main__':
     # X_pca_150 = pca_data[:, :150]
 
     # plot_tsne_vs_umap(X_pca_150,processed=True)
-    print_corrs()
-    cols = ["quantile_labels","ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE","only_rna64_MSE_Adam"]
-    sub_plot_intensities_histo("Evaluation/summ.csv",cols=cols,name="Histo_ESM_OPT_LOSS")
+    cols = ["quantile_labels","ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
+            "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
+            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop"]
+    corr = get_corr(cols=cols)
     
+    # sub_plot_intensities_histo("Evaluation/summ.csv",cols=cols,name="Histo_ESM_OPT_LOSS",corr_values = corr)
+    cols_ = ["ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
+            "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
+            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop"]
+    overlay_label_feature_histograms(df="Evaluation/summ.csv", label_col="quantile_labels", 
+                                     feature_cols=cols_, bins=500, figsize=(14, 8), corr_values=corr)
