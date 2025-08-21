@@ -1,6 +1,5 @@
 import logging
 import os
-from naming_utilities import timestamp
 def create_logger(model_name: str) -> logging.Logger:
     """
     Creates a logger that logs everything to a file and only warnings/errors to the console.

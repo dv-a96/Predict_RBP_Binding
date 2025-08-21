@@ -97,22 +97,23 @@ def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
     rna_mask = df[col].apply(lambda seq: bool(rna_pattern.fullmatch(seq)))
     length_mask = df[col].apply(lambda seq: min_length <= len(seq) <= max_length)
     # Logging invalid entries
-    if logger is None:
-        logger = create_logger('trail')
+    # if logger is None:
+    #     logger = create_logger('trail')
     invalid_rna = df[~rna_mask]
     invalid_length = df[~length_mask]
     bad_indexes = None
     rnas = df[rna_mask]
     if not invalid_rna.empty:
-        logger.warning(f"{len(invalid_rna)} sequences have invalid RNA characters we removed them from the Data.")
-        logger.debug(f"Invalid RNA sequences: {invalid_rna[col].tolist()[:5]}")  # preview first 5
-        logger.debug(f"Indices: {invalid_rna.index}")
+        # logger.warning(f"{len(invalid_rna)} sequences have invalid RNA characters we removed them from the Data.")
+        # logger.debug(f"Invalid RNA sequences: {invalid_rna[col].tolist()[:5]}")  # preview first 5
+        # logger.debug(f"Indices: {invalid_rna.index}")
         
         bad_indexes = invalid_rna.index
     if not invalid_length.empty:
-        logger.warning(f"{len(invalid_length)} sequences are out of length bounds. By defualt they are kept!")
-        logger.debug(f"Invalid length sequences: {invalid_length[col].tolist()[:5]}")  # preview
-        logger.debug(f"Indices: {invalid_length.index}")
+        # logger.warning(f"{len(invalid_length)} sequences are out of length bounds. By defualt they are kept!")
+        # logger.debug(f"Invalid length sequences: {invalid_length[col].tolist()[:5]}")  # preview
+        # logger.debug(f"Indices: {invalid_length.index}")
+        pass
     return rnas, bad_indexes
 
 def validate_rbps_sequences(rbps_data, logger = None):
@@ -129,10 +130,10 @@ def preprocess_intensities(intensities_df, logger=None , method=None, unit_lengt
     elif method.lower() =='log':
         intensities_df = log_normalization(intensities_df,logger)
     else: method =''
-    logger.info(f"Normalization method: {method}")
+    #logger.info(f"Normalization method: {method}")
     if unit_length:
         intensities_df = unit_scale(intensities_df)
-    logger.info(f"Unit scaling: {unit_length}")
+    #logger.info(f"Unit scaling: {unit_length}")
     # negatives to zero?
     # Standarization/ Log transformation....
     return intensities_df
@@ -170,7 +171,7 @@ def log_normalization(df,logger):
 
     min_val = df.min().min()
     if min_val <0:
-        logger.warning(f"doing log transformation on negative values: doing values - values.min() before")
+        #logger.warning(f"doing log transformation on negative values: doing values - values.min() before")
         df = df - min_val 
     df = np.log1p(df)
     return df

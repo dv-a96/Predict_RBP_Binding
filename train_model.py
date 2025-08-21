@@ -1,13 +1,14 @@
 """This module is to train a given model"""
-
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 from train_test_utilities import *
 from data_processing import *
 from models import *
-import os
+
 import time
 
+
 from logger_utils import create_logger
-from naming_utilities import create_model_name
 from model_utilities import LOSSES, init_checkpoint_and_tensorboard
 # def train_k_fold(model_name, K = 10, exclude_num = None, seed = 42, batch_size = 512, epochsNum = 1):
 #     logger = create_logger(f'train_{model_name}_{K}-fold')
@@ -72,14 +73,17 @@ from model_utilities import LOSSES, init_checkpoint_and_tensorboard
 #         # Train model on this fold
 #         pass
     
-def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 1, mlp_layers=[64],
-                        loss_idx=1,opt_idx=2):
-    full_model_name = create_model_name(model_name,mlp_layers=mlp_layers)
-    logger = create_logger(f'train_{full_model_name}_heldout')
-    logger.info(f"Starting training for model: {full_model_name} with training type: heldout")
-    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard(full_model_name,loss_key=loss_idx, opt_idx=opt_idx)
+def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 50, mlp_layers=[64],
+                        loss_idx=1,opt_idx=2, plateauPatience=2, earlyStopPatience=5, model_type='regression'):
+    tf.keras.backend.clear_session()
+    model_name = model_name.lower()
+    
+    # logger = create_logger(f'train_{full_model_name}_heldout')
+    # logger.info(f"Starting training for model: {full_model_name} with training type: heldout")
+    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard(model_name,loss_key=loss_idx, opt_idx=opt_idx,
+                                                                  model_type=model_type,mlp_layers=mlp_layers)
     # Load and prepare training data
-    rnas, rbps, intensities = prepare_training_data(logger=logger,normalization_method='quantile')
+    rnas, rbps, intensities = prepare_training_data(logger=None,normalization_method='quantile')
     rbps_number = len(rbps)
     if exclude_num:
         test_indices = exclude_indices(samples_num=rbps_number, exclude_num=exclude_num, random_state=seed)
@@ -90,15 +94,13 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         rbps = rbp_one_hot(rbps)
         rnas = rna_one_hot(rnas)
         model, call_backs = Combined_CNN(input_shape=(rbps.shape[1]+rnas.shape[1],20),mlp_layers=mlp_layers)
-        train_ds = RBP_RNA_Combined_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
-        val_ds = RBP_RNA_Combined_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
+        
     elif model_name == "separate_cnn":
         rbps = rbp_one_hot(rbps)
         rnas = rna_one_hot(rnas)
         rnas = rnas[:,:,:4] # keep only the first 4 bits.
         model,call_backs = separate_cnn(protein_shape=(rbps.shape[1],20),rna_shape=(rnas.shape[1],4),mlp_layers=mlp_layers)
-        train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
-        val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
+        
     elif model_name == "mlp":
         rbps = rbp_one_hot(rbps)
         rnas = rna_one_hot(rnas)
@@ -106,38 +108,29 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         rnas = rnas.reshape(rnas.shape[0],-1)
         rbps = rbps.reshape(rbps.shape[0],-1)
         model,call_backs = MLP_Model(input_shape=(rnas.shape[1]+rbps.shape[1],),mlp_layers=mlp_layers)
-        train_ds = RBP_RNA_ConcatDataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices])
-        val_ds = RBP_RNA_ConcatDataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices])
-    elif model_name =="ESM":
-        rnas = rna_one_hot(rnas)
-        rbps = get_ESM_prot_vecs()
-        rnas = rnas[:,:,:4] # keep only the first 4 bits.
-        model,call_backs = ESM_CNN_Oren(prot_input=(rbps.shape[1],),rna_input=(41,4))
-        train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices],if_rbp_coding=False)
-        val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices],if_rbp_coding=False)
+        
+  
     elif 'esm_cnn' in model_name.lower():
+        
         rnas = rna_one_hot(rnas)
         rbps = get_ESM_prot_vecs()
         rnas = rnas[:,:,:4] # keep only the first 4 bits.
-        if 'guas' in model_name.lower():
-            model,call_backs = ESM_CNN_Guasian(prot_input=(rbps.shape[1],),rna_input=(41,4),
-                                               check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
-                                               loss_idx=loss_idx,opt_idx=opt_idx)
-        else:
-            model,call_backs = ESM_CNN(prot_input=(rbps.shape[1],),rna_input=(41,4),
-                                   check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
-                                   loss_idx=loss_idx,opt_idx=opt_idx)
-        #train_ds = RBP_RNA_separate_Dataset(rbps[train_indices], rnas, intensities=intensities[:,train_indices],if_rbp_coding=False)
-        #val_ds = RBP_RNA_separate_Dataset(rbps[test_indices], rnas, intensities=intensities[:,test_indices],if_rbp_coding=False)
-    elif model_name == "Only_RNA_sec":
+        model,call_backs = build_ESM_CNN(prot_input=(rbps.shape[1],),rna_input=(41,4),
+                                         check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
+                                         loss_idx=loss_idx,opt_idx=opt_idx,
+                                         plateauPatience=plateauPatience, earlyStopPatience=earlyStopPatience,model_type=model_type)
+        
+        factory = PairDatasetFactory(rbps, rnas, intensities, place_on_cpu=True)
+        
+    elif model_name == "only_rna":
         rnas = rna_one_hot(rnas)
         rnas = rnas[:,:,:4]
         model,call_backs = Only_RNA(rna_input=(41,4),loss_idx=loss_idx,
                                   check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
-                                  opt_idx=opt_idx)
-        model.fit(rnas,intensities[:,train_indices],epochs=5)
+                                  opt_idx=opt_idx,plateauPatience=plateauPatience, earlyStopPatience=earlyStopPatience) 
+        model.fit(rnas,intensities[:,train_indices],epochs=5,callbacks=call_backs,validation_data=(rnas,intensities[:,train_indices]))
         model.save(checkPtFile)
-
+        return
     elif model_name == 'probe_rating':
         rbps = get_ESM_prot_vecs()
         rnas = get_ESM_rna_vecs()
@@ -178,21 +171,19 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         # intensityPred1=np.dot(np.linalg.pinv(intensities_fold_train.T), predictedSimilarity)
         return
     
-    # train_ds = train_ds.shuffle(batch_size).batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    # val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    # steps_per_epoch = rbps[train_indices].shape[0]*rnas.shape[0] // batch_size +1
-    # val_steps = rbps[test_indices].shape[0] * rnas.shape[0]  // batch_size +1
-    # steps_per_epoch = min(steps_per_epoch,500)
-    # val_steps = min(val_steps,500)
-    #print(len(train_ds))
-    #model.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
     
-    # rbp_indice = rbps[train_indices]  
-    # rbp_indice = rbp_indice[None,:]
+    train_ds = factory.make_train(batch_size=batch_size, shuffle=True,  prot_ids=train_indices)
+    val_ds = factory.make_train(batch_size=batch_size, shuffle=False, prot_ids=train_indices)
+   
     
-    # rbp_indice = rbp_indice.repeat(rnas.shape[0],axis=0)
-    # rbp_indice=rbp_indice.reshape(rbp_indice.shape[0],rbp_indice.shape[2])
-    # model.fit([rbp_indice,rnas],intensities[:,train_indices],epochs=5)
+    start = time.time()
+    
+    model.fit(train_ds, epochs=epochsNum, validation_data=val_ds, callbacks=call_backs)
+    
+    end = time.time()
+    elapsed = end - start
+    print(f"Training time for 5 epoch: {elapsed:.2f} seconds")
+   
     # model.save(checkPtFile)
     # Callbacks
     
@@ -228,8 +219,18 @@ batch_size = 128
             break"""
 if __name__ =="__main__":
     #train_k_fold("Combined_CNN")
-    train_held_out_test("Only_RNA_sec",exclude_num=199,loss_idx=4,opt_idx=1)
-    train_held_out_test("Only_RNA_sec",exclude_num=199,loss_idx=5,opt_idx=2)
+    
+    disterbutions = ['asymmetric_t','gaussian','asymmetric_gaussian','asymmetric_laplace',]
+    for model_type in disterbutions:
+        train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=1,opt_idx=2,model_type=model_type)
+    losses = [1,4,5]
+    opts = [1,2]
+    for loss_idx in losses:
+        for opt_idx in opts:
+            train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=loss_idx,opt_idx=opt_idx)
+            train_held_out_test("only_rna",exclude_num=199,loss_idx=loss_idx,opt_idx=opt_idx)
+    
 
-        #print_model()
+    
+
     

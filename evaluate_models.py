@@ -19,7 +19,6 @@ CUSTOM_OBJECTS = {"correlation_coefficient_loss":correlation_coefficient_loss,
                   "mse_from_mu":mse_from_mu,
                   "mae_from_mu":mae_from_mu}
 
-
 def add_preds_to_eval_file(preds, model_name):
     eval_file_path = os.path.join(EVAL_FOLDER, f'summ.csv')
     os.makedirs(EVAL_FOLDER, exist_ok=True)
@@ -31,26 +30,27 @@ def add_preds_to_eval_file(preds, model_name):
         data[model_name] = preds
         data.to_csv(eval_file_path, index=False)
 
-def compare_models_in_folder(folder="/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/only_rna_sec64"):
+def compare_models_in_folder(folder=".."):
     logger = create_logger(f'scaling')
     models = [f for f in os.listdir(folder) if f.endswith('.keras')]
-    model_names = [f.rsplit("_", 2)[:-2][0]for f in models]
+    #model_names = [f.rsplit("_", 2)[:-2][0]for f in models]
     summary_data = 'Evaluation/summ.csv'
     data =pd.read_csv(summary_data)
     rnas, rbps, intensities = prepare_training_data(logger=logger,normalization_method='quantile')
     rnas = rna_one_hot(rnas)
-    #rbps = get_ESM_prot_vecs()
+    rbps = get_ESM_prot_vecs()
     rnas = rnas[:,:,:4] # keep only the first 4 bits.
-    # rbp_indice = rbps[[132]]  
-    # rbp_indice = rbp_indice[None,:]
-    # rbp_indice = rbp_indice.repeat(rnas.shape[0],axis=0)
-    # rbp_indice=rbp_indice.reshape(rbp_indice.shape[0],rbp_indice.shape[2])
-    for model_name,model_path in zip(model_names,models):
+    rbp_indice = rbps[[132]]  
+    rbp_indice = rbp_indice[None,:]
+    rbp_indice = rbp_indice.repeat(rnas.shape[0],axis=0)
+    rbp_indice=rbp_indice.reshape(rbp_indice.shape[0],rbp_indice.shape[2])
+    for model_name,model_path in zip(models,models):
         if model_name in data.columns:
             continue
         else:
             model = load_model(os.path.join(folder,model_path),custom_objects=CUSTOM_OBJECTS)
-            preds = model.predict(rnas,batch_size=4096)
+            preds = model.predict([rbp_indice,rnas],batch_size=4096)
+            preds = preds[:,:1]
             data[model_name] = preds.reshape(-1)
     data.to_csv(summary_data, index=False)
 
@@ -227,5 +227,5 @@ def evaluate_model(model_name, exclude_num = 20, seed = 42, batch_size = 2048, m
     # true_intensities = intensities[:,test_indices]
     # correlations = pearson_stats(true_intensities,pred_intensities)
     # print(correlations)
-compare_models_in_folder()
+compare_models_in_folder("/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn_guas")
 #evaluate_model('Only_RNA_sec',exclude_num=199)

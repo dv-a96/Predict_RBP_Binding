@@ -83,7 +83,7 @@ def overlay_label_feature_histograms(df, label_col, feature_cols=None, bins=30, 
         axes[j].axis("off")
 
     fig.tight_layout()
-    temp_path = os.path.join(Figures, f"overlay_label_histograms_{label_col}.png")
+    temp_path = os.path.join(Figures, f"overlay_label_histograms_tt_{label_col}.png")
     plt.savefig(temp_path, dpi=300)
     plt.close(fig)
 
@@ -399,12 +399,18 @@ if __name__ == '__main__':
     # plot_tsne_vs_umap(X_pca_150,processed=True)
     cols = ["quantile_labels","ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
             "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
-            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop"]
+            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop",
+            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-40-01.keras",
+            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-35-27.keras",
+            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-28-23.keras","esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-11-37.keras"]
     corr = get_corr(cols=cols)
     
     # sub_plot_intensities_histo("Evaluation/summ.csv",cols=cols,name="Histo_ESM_OPT_LOSS",corr_values = corr)
     cols_ = ["ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
             "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
-            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop"]
+            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop",
+            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-40-01.keras",
+            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-35-27.keras",
+            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-28-23.keras","esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-11-37.keras"]
     overlay_label_feature_histograms(df="Evaluation/summ.csv", label_col="quantile_labels", 
                                      feature_cols=cols_, bins=500, figsize=(14, 8), corr_values=corr)
