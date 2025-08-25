@@ -52,16 +52,32 @@ def create_model_name(model_name, mlp_layers, model_type='regression'):
     full_name =  model_name.lower() + "_".join(str(x) for x in mlp_layers)
     return full_name
 
-def init_checkpoint_and_tensorboard(model_name,loss_key=None , opt_idx = None, model_type='regression', mlp_layers = []):
+def init_checkpoint_and_tensorboard(model_name,loss_key=None , opt_idx = None, model_type='regression', mlp_layers = [],
+                                    if_sample_wieght=False, alpha=None, bins=None, if_clamp_by_percentile = False,
+                        percentile = None,cluster_id = None,remove_rna_dups = False,norm_method = None):
     """Initialize checkpoint and TensorBoard directories with model name and timestamp."""
     # Optional: add timestamp and model name to distinguish runs
     global checkpoint_dir, tensorboard_dir
-    checkpoint_dir_ = os.path.join(checkpoint_dir, f"{model_name}")
-    tensorboard_dir_ = os.path.join(tensorboard_dir, f"{model_name}")
+    if cluster_id is not None:
+        model_name_ = f"{model_name}_cluster_{cluster_id}"
+    else: model_name_ = model_name
+    checkpoint_dir_ = os.path.join(checkpoint_dir, f"{model_name_}")
+    tensorboard_dir_ = os.path.join(tensorboard_dir, f"{model_name_}")
 
     os.makedirs(checkpoint_dir_, exist_ok=True)
     os.makedirs(tensorboard_dir_, exist_ok=True)
+    
     model_name = create_model_name(model_name, mlp_layers, model_type=model_type)
+    if norm_method is not None:
+        model_name = f"{model_name}_{norm_method}"
+    if if_sample_wieght:
+        if alpha is None or bins is None:
+            raise ValueError("If if_sample_wieght is True, alpha and bins must be provided.")
+        model_name = f"{model_name}_alpha{alpha}_bins{bins}"
+    if if_clamp_by_percentile:
+        if percentile is None:
+            raise ValueError("If if_clamp_by_percentile is True, percentile must be provided.")
+        model_name = f"{model_name}_clamp{percentile}"
     if model_type == 'regression':
             
         if loss_key is not None:
@@ -161,6 +177,16 @@ def mae_from_mu(y_true, y_pred):
     mu = y_pred[:, :1]
     return tf.reduce_mean(tf.abs(y_true - mu))
 
+def pearson_corr(y_true, y_pred):
+    y_true = tf.reshape(y_true, [-1])
+    y_pred = tf.reshape(y_pred, [-1])
+    xm = y_true - tf.reduce_mean(y_true)
+    ym = y_pred - tf.reduce_mean(y_pred)
+    corr = tf.reduce_sum(xm * ym) / (
+        tf.sqrt(tf.reduce_sum(tf.square(xm))) *
+        tf.sqrt(tf.reduce_sum(tf.square(ym))) + 1e-8
+    )
+    return corr
 def correlation_coefficient_loss(y_true, y_pred):
     '''
     Use K.epsilon() == 10^-7 to avoid divide by zero error    

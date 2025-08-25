@@ -74,22 +74,38 @@ from model_utilities import LOSSES, init_checkpoint_and_tensorboard
 #         pass
     
 def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 50, mlp_layers=[64],
-                        loss_idx=1,opt_idx=2, plateauPatience=2, earlyStopPatience=5, model_type='regression'):
+                        loss_idx=1,opt_idx=2, plateauPatience=2, earlyStopPatience=5, model_type='regression',
+                        if_sample_wieght=False, alpha=0.5, bins=20, if_clamp_by_percentile = False,
+                        percentile = 99.5, normalization_method = 'quantile', cluster_id = None, remove_rna_dups = False):
     tf.keras.backend.clear_session()
     model_name = model_name.lower()
     
     # logger = create_logger(f'train_{full_model_name}_heldout')
     # logger.info(f"Starting training for model: {full_model_name} with training type: heldout")
     checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard(model_name,loss_key=loss_idx, opt_idx=opt_idx,
-                                                                  model_type=model_type,mlp_layers=mlp_layers)
+                                                                  model_type=model_type,mlp_layers=mlp_layers,
+                                                                  if_sample_wieght=if_sample_wieght, bins=bins, alpha=alpha,
+                                                                  if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
+                                                                  cluster_id=cluster_id,remove_rna_dups=remove_rna_dups,
+                                                                  norm_method=normalization_method)
     # Load and prepare training data
-    rnas, rbps, intensities = prepare_training_data(logger=None,normalization_method='quantile')
+    rnas, rbps, intensities, sample_w_np, edges_np, bin_w_np = prepare_training_data(logger=None,normalization_method=normalization_method,
+                                                                                        if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
+                                                                                        if_sample_wieght=if_sample_wieght, alpha=alpha, bins=bins,
+                                                                                        if_remove_rna_duplicates=remove_rna_dups)
+    
+
     rbps_number = len(rbps)
-    if exclude_num:
+    if cluster_id is not None:
+        cluster_idx = get_clusteres_indices(cluster_id=cluster_id)
+        rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(cluster_idx, val_ratio=0.2, test_ratio=0.1, random_state=seed)
+    elif exclude_num:
         test_indices = exclude_indices(samples_num=rbps_number, exclude_num=exclude_num, random_state=seed)
         if len(test_indices) == 0:
             raise ValueError('Error excluding testing indices')
         train_indices = list(set(range(rbps_number)).difference(set(test_indices)))
+    all_rbp_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
+    rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbp_indices],random_state=seed,val_size=0.2)
     if model_name == "combined_CNN":
         rbps = rbp_one_hot(rbps)
         rnas = rna_one_hot(rnas)
@@ -115,12 +131,18 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         rnas = rna_one_hot(rnas)
         rbps = get_ESM_prot_vecs()
         rnas = rnas[:,:,:4] # keep only the first 4 bits.
+        if "minmax" in normalization_method:
+            sigmoid_head = True
+        else: sigmoid_head = False
         model,call_backs = build_ESM_CNN(prot_input=(rbps.shape[1],),rna_input=(41,4),
                                          check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
                                          loss_idx=loss_idx,opt_idx=opt_idx,
-                                         plateauPatience=plateauPatience, earlyStopPatience=earlyStopPatience,model_type=model_type)
+                                         plateauPatience=plateauPatience, 
+                                         earlyStopPatience=earlyStopPatience,
+                                         model_type=model_type,
+                                         sigmoid_head=sigmoid_head)
         
-        factory = PairDatasetFactory(rbps, rnas, intensities, place_on_cpu=True)
+        factory = PairDatasetFactory(rbps, rnas, intensities, place_on_cpu=True, sample_weight_array=sample_w_np)
         
     elif model_name == "only_rna":
         rnas = rna_one_hot(rnas)
@@ -128,7 +150,8 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         model,call_backs = Only_RNA(rna_input=(41,4),loss_idx=loss_idx,
                                   check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
                                   opt_idx=opt_idx,plateauPatience=plateauPatience, earlyStopPatience=earlyStopPatience) 
-        model.fit(rnas,intensities[:,train_indices],epochs=5,callbacks=call_backs,validation_data=(rnas,intensities[:,train_indices]))
+        model.fit(rnas,intensities[:,train_indices],epochs=epochsNum,
+                  callbacks=call_backs,validation_data=(rnas,intensities[:,train_indices]),batch_size=batch_size)
         model.save(checkPtFile)
         return
     elif model_name == 'probe_rating':
@@ -172,17 +195,17 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         return
     
     
-    train_ds = factory.make_train(batch_size=batch_size, shuffle=True,  prot_ids=train_indices)
-    val_ds = factory.make_train(batch_size=batch_size, shuffle=False, prot_ids=train_indices)
+    train_ds = factory.make_train(batch_size=batch_size, shuffle=True,  prot_ids=rbps_train_indices,rna_ids=rna_train_indices)
+    val_ds = factory.make_train(batch_size=batch_size, shuffle=False, prot_ids=rbps_validation_indices,rna_ids=rna_validation_indices)
    
     
     start = time.time()
     
-    model.fit(train_ds, epochs=epochsNum, validation_data=val_ds, callbacks=call_backs)
+    model.fit(train_ds, epochs=epochsNum, callbacks=call_backs, validation_data=val_ds)
     
     end = time.time()
     elapsed = end - start
-    print(f"Training time for 5 epoch: {elapsed:.2f} seconds")
+    print(f"Training time  {elapsed:.2f} seconds")
    
     # model.save(checkPtFile)
     # Callbacks
@@ -219,16 +242,36 @@ batch_size = 128
             break"""
 if __name__ =="__main__":
     #train_k_fold("Combined_CNN")
+    #train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=1,opt_idx=2)
+    # disterbutions = ['asymmetric_t','gaussian','asymmetric_gaussian','asymmetric_laplace',]
+    # for model_type in disterbutions:
+    #     train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=1,opt_idx=2,model_type=model_type)
+    # norm_methods = ['minmax', 'zscore', 'robust', 'meannorm', 'boxcox', 'quantile', 'log', None,
+    #                 'log_zscore','log_minmax','log_meannorm','log_quantile',
+    #                 'quantile_minmax','quantile_zscore','quantile_meannorm']
     
-    disterbutions = ['asymmetric_t','gaussian','asymmetric_gaussian','asymmetric_laplace',]
-    for model_type in disterbutions:
-        train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=1,opt_idx=2,model_type=model_type)
-    losses = [1,4,5]
-    opts = [1,2]
-    for loss_idx in losses:
-        for opt_idx in opts:
-            train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=loss_idx,opt_idx=opt_idx)
-            train_held_out_test("only_rna",exclude_num=199,loss_idx=loss_idx,opt_idx=opt_idx)
+    
+    remove_rna_dups = True
+    alphas = 0.5
+    clamp_by_percentile_options = False
+    if_sample_weights_options = True
+    losses = 1
+    opts = 2
+    clusters = [1,2,3,'all']
+    cluster = 3
+    norm_method = 'boxcox'
+    train_held_out_test("ESM_CNN",loss_idx=losses,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
+                        if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
+                        remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,normalization_method=norm_method)                        
+    
+    # for los in losses:
+    #     train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=los,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
+    #                     if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas)
+    # for loss_idx in losses:
+    #     for opt_idx in opts:
+    #         pass
+            #train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=loss_idx,opt_idx=opt_idx,if_sample_wieght=True,if_clamp_by_percentile=True,alph)
+            #train_held_out_test("only_rna",exclude_num=199,loss_idx=loss_idx,opt_idx=opt_idx,if_sample_wieght=False)
     
 
     

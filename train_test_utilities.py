@@ -3,6 +3,113 @@
 import numpy as np
 from sklearn.model_selection import KFold
 import tensorflow as tf
+from sklearn.model_selection import StratifiedShuffleSplit
+import pandas as pd
+
+def get_clusteres_indices(cluster_file = 'Data_sets/wass_no_dup_cluster.csv', cluster_id = None):
+    """
+    Reads a CSV file containing cluster information and returns the indices of samples belonging to a specified cluster.
+
+    Args:
+        cluster_file (str): Path to the CSV file containing cluster data.
+        cluster_id (int, optional): The ID of the cluster to filter by. If None, all indices are returned.
+
+    Returns:
+        np.ndarray: Array of indices corresponding to the specified cluster.
+    """
+    import pandas as pd
+    clusters_df = pd.read_csv(cluster_file,index_col=0)
+    clusters_df.drop(columns=['Unnamed: 0'], inplace=True)
+    if cluster_id is not None:
+        if cluster_id == 'all': # randomly pick 20% for validation, 10% for testing from each cluster
+            grouped = clusters_df.groupby('0')
+            return {key: np.array(group.index) for key, group in grouped}
+            
+        elif cluster_id not in clusters_df['0'].values:
+            raise ValueError(f"Cluster ID {cluster_id} not found in the data.")
+        filtered_df = clusters_df[clusters_df['0'] == cluster_id]
+    else:
+        filtered_df = clusters_df
+    return np.array(filtered_df.index)
+
+def split_rbs_to_train_val_test(rbps_indices, val_ratio=0.2, test_ratio=0.1, random_state=42):
+    """
+    Splits the given indices into training, validation, and test sets based on specified ratios.
+
+    Args:
+        rbps_indices (np.ndarray): Array of indices to be split.
+        val_ratio (float): Proportion of data to be used for validation.
+        test_ratio (float): Proportion of data to be used for testing.
+        random_state (int, optional): Random seed for reproducibility. Defaults to None.
+
+    Returns:
+        train_indices (np.ndarray): Indices for the training set.
+        val_indices (np.ndarray): Indices for the validation set.
+        test_indices (np.ndarray): Indices for the test set.
+    """
+    def split_to_sets(rbps_indices):
+        if not (0 <= val_ratio < 1) or not (0 <= test_ratio < 1) or (val_ratio + test_ratio >= 1):
+            raise ValueError("val_ratio and test_ratio must be in [0, 1) and their sum must be less than 1.")
+        np.random.seed(random_state)
+        rng = np.random.default_rng(random_state)
+        
+        total_samples = len(rbps_indices)
+        n_val = max(2, int(val_ratio * total_samples))
+        n_test = max(1, int(test_ratio * total_samples))
+        val_indices = np.random.choice(rbps_indices, size=n_val, replace=False)
+        remaining = np.setdiff1d(rbps_indices, val_indices)
+        test_indices = np.random.choice(remaining, size=n_test, replace=False)
+        train_indices = np.setdiff1d(remaining, test_indices)
+        if len(train_indices)+len(val_indices)+len(test_indices) != total_samples:
+            raise ValueError("The sum of train, validation, and test indices does not equal the total number of samples.")
+        
+        return train_indices, val_indices, test_indices
+    train_indices = []
+    validation_indices = []
+    test_indices = []
+    if isinstance(rbps_indices, dict):
+        for cluster,indices in rbps_indices.items():
+            tr, val, te = split_to_sets(indices)
+            train_indices.extend(tr)
+            validation_indices.extend(val)
+            test_indices.extend(te)
+        return np.array(train_indices), np.array(validation_indices), np.array(test_indices)
+    else:
+        return split_to_sets(rbps_indices)
+    
+
+
+
+def stratified_split_multi(
+    X_MxN, test_size=0.10, val_size=0.20, n_bins=50, random_state=42, method="rank-mean"
+):
+    """
+    X_MxN: array-like of shape (M, N) with M vectors (features) and N = 100k samples.
+    Returns: train_idx, val_idx, test_idx shared for all M vectors.
+    """
+    X = np.asarray(X_MxN)
+    M, N = X.shape
+    # 1) Composite score per sample
+    if method == "rank-mean":
+        # compute rank (1..N) per vector; convert to uniform [0,1] by /N; average across M
+        ranks = np.apply_along_axis(lambda v: pd.Series(v).rank(method="average").values, 1, X)
+        score = ranks.mean(axis=0) / N
+    else:
+        raise ValueError("Unsupported method")
+    # 2) Bin the composite score for stratification
+    bins = pd.qcut(pd.Series(score), q=n_bins, duplicates="drop")
+    # 3) Test split
+    sss_test = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+    idx_all = np.arange(N)
+    trainval_idx, test_idx = next(sss_test.split(idx_all, bins))
+    # 4) Val split from remaining so overall is val_size
+    rel_val = val_size / (1 - test_size)
+    bins_trainval = bins.iloc[trainval_idx]
+    sss_val = StratifiedShuffleSplit(n_splits=1, test_size=rel_val, random_state=random_state)
+    train_rel, val_rel = next(sss_val.split(trainval_idx, bins_trainval))
+    train_idx, val_idx = trainval_idx[train_rel], trainval_idx[val_rel]
+    return train_idx, val_idx, test_idx
+
 
 def split_k_fold(samples_num, k, excluded_indices=None, random_state=None):
     """
@@ -65,115 +172,18 @@ def exclude_indices(samples_num, exclude_num, random_state=None):
     return sorted(excluded)
 
 
-# class RBP_RNA_Combined_Dataset(tf.data.Dataset):
-#     def __new__(cls, rbps, rnas, intensities=None):
-#         n_rbps = rbps.shape[0]
-#         n_rnas = rnas.shape[0]
-#         L_rbp = rbps.shape[1]
-#         L_rna = rnas.shape[1]
-#         C = rbps.shape[2]
-
-#         def generator():
-#             for i in range(n_rbps):
-#                 for j in range(n_rnas):
-#                     rbp = rbps[i]        # (L_rbp, C)
-#                     rna = rnas[j]        # (L_rna, C)
-#                     pair = tf.concat([rbp, rna], axis=0)  # (L_rbp + L_rna, C)
-
-#                     if intensities is not None:
-#                         label = intensities[j, i]  # RNA j, RBP i
-#                     else:
-#                         label = 0.0  # or tf.constant(0.0)
-
-#                     yield pair, label
-
-#         output_signature = (
-#     tf.TensorSpec(shape=(L_rbp + L_rna, C), dtype=tf.int8),
-#     tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
-# )
-
-#         return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
-# class RBP_RNA_separate_Dataset(tf.data.Dataset):
-#     def __new__(cls, rbps, rnas, intensities=None,if_rbp_coding = True):
-#         n_rbps = rbps.shape[0]
-#         n_rnas = rnas.shape[0]
-#         L_rbp = rbps.shape[1]
-#         L_rna = rnas.shape[1]
-#         if if_rbp_coding:
-#             C_rbp = rbps.shape[2]
-#             rbp_tensor = tf.TensorSpec(shape=(L_rbp, C_rbp), dtype=tf.int8)
-#         else :  rbp_tensor = tf.TensorSpec(shape=(L_rbp, ), dtype=tf.float32)
-               
-#         C_rna = rnas.shape[2]
-#         output_signature = (
-#             (
-                
-#                 rbp_tensor,  # RBP branch
-#                 tf.TensorSpec(shape=(L_rna, C_rna), dtype=tf.int8)   # RNA branch
-#             ),
-#             tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
-#         )
-#         def generator():
-#             for i in range(n_rbps):
-#                 for j in range(n_rnas):
-#                     rbp = rbps[i]        # shape: (L_rbp, C_rbp)
-#                     rna = rnas[j]        # shape: (L_rna, C_rna)
-
-#                     if intensities is not None:
-#                         label = intensities[j, i]  # RNA j, RBP i
-#                     else:
-#                         label = 0.0  # or tf.constant(0.0)
-
-#                     # Yield them as TWO separate tensors
-#                     yield (rbp, rna), label
-
-        
-
-#         return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
-    
-# class RBP_RNA_ConcatDataset(tf.data.Dataset):
-#     def __new__(cls, rbps, rnas, intensities=None):
-#         """
-#         rbps: (M, rbp_bits)
-#         rnas: (N, rna_bits)
-#         intensities: (N, M) labels matrix (optional)
-#         """
-#         n_rbps = rbps.shape[0]
-#         n_rnas = rnas.shape[0]
-#         rbp_bits = rbps.shape[1]
-#         rna_bits = rnas.shape[1]
-
-#         def generator():
-#             for i in range(n_rbps):
-#                 for j in range(n_rnas):
-#                     rbp = rbps[i]        # shape: (rbp_bits,)
-#                     rna = rnas[j]        # shape: (rna_bits,)
-
-#                     # concatenate protein & RNA into one long vector
-#                     pair = tf.concat([rbp, rna], axis=0)  # shape: (rbp_bits + rna_bits,)
-
-#                     if intensities is not None:
-#                         label = intensities[j, i]  # RNA j, RBP i
-#                     else:
-#                         label = 0.0  # or tf.constant(0.0)
-
-#                     yield pair, label
-
-#         output_signature = (
-#             tf.TensorSpec(shape=(rbp_bits + rna_bits,), dtype=tf.int8),
-#             tf.TensorSpec(shape=(), dtype=tf.float32)  # scalar label
-#         )
-
-#         return tf.data.Dataset.from_generator(generator, output_signature=output_signature)
-
-
-
 class PairDatasetFactory:
     """
     Holds TF tensors for rbps/rnas/intensities and produces tf.data datasets
     without duplicating memory. Convert to TF once, reuse many times.
     """
-    def __init__(self, rbps_np, rnas_np, intensities_np, place_on_cpu=True):
+    def __init__(self, rbps_np, rnas_np, intensities_np, place_on_cpu=True, 
+                 sample_weight_array = None):
+        self.use_weights = False
+        if sample_weight_array is not None:
+            if sample_weight_array.shape != intensities_np.shape:
+                raise ValueError(f"sample_w_np shape {sample_weight_array.shape} must match intensities {intensities_np.shape}")
+            self.use_weights = True
         # Optionally pin on CPU so you don't waste GPU VRAM on constants
         device = "/CPU:0" if place_on_cpu else None
         if device:
@@ -181,25 +191,48 @@ class PairDatasetFactory:
                 self.rbps = tf.convert_to_tensor(rbps_np, dtype=tf.float32)        # [P, Dp]
                 self.rnas = tf.convert_to_tensor(rnas_np, dtype=tf.int8)        # [R, L, A]
                 self.y    = tf.convert_to_tensor(intensities_np, dtype=tf.float32) # [R, P]
+                if self.use_weights:
+                
+                    self.w = tf.convert_to_tensor(sample_weight_array, dtype=tf.float32)    # [R, P]
+                else:
+                    self.w = None
         else:
             self.rbps = tf.convert_to_tensor(rbps_np, dtype=tf.float32)
             self.rnas = tf.convert_to_tensor(rnas_np, dtype=tf.int8)
             self.y    = tf.convert_to_tensor(intensities_np, dtype=tf.float32)
+            if self.use_weights:
+                self.w = tf.convert_to_tensor(sample_weight_array, dtype=tf.float32)    # [R, P]
+            else:
+                self.w = None
+            
 
         self.P = tf.shape(self.rbps)[0]
         self.R = tf.shape(self.rnas)[0]
-
-    def _map_pair(self, p, r, return_ids: bool):
-        rbp_vec = tf.gather(self.rbps, p)  # [Dp]
-        rna_oh  = tf.gather(self.rnas, r)  # [L, A]
-        y       = tf.gather(tf.gather(self.y, r), p)  # scalar
+    
+    
+    # returns (x, y)
+    def _map_pair_xy(self, p, r, return_ids: bool):
+        rbp_vec = tf.gather(self.rbps, p)
+        rna_oh  = tf.gather(self.rnas, r)
+        y_val   = tf.gather(tf.gather(self.y, r), p)  # scalar
         features = (rbp_vec, rna_oh)
-        label    = tf.expand_dims(y, -1)
-
+        label    = tf.expand_dims(y_val, -1)
         if return_ids:
-            # Extra debugging info alongside batch
-            return features, label, (p, r)
+            return (features, label), (p, r)
         return features, label
+
+    # returns (x, y, w)
+    def _map_pair_xyw(self, p, r, return_ids: bool):
+        rbp_vec = tf.gather(self.rbps, p)
+        rna_oh  = tf.gather(self.rnas, r)
+        y_val   = tf.gather(tf.gather(self.y, r), p)
+        w_val   = tf.gather(tf.gather(self.w, r), p)
+        features = (rbp_vec, rna_oh)
+        label    = tf.expand_dims(y_val, -1)
+        if return_ids:
+            return (features, label, w_val), (p, r)
+        return features, label, w_val
+
 
     def make_dataset(self,
                      prot_ids=None,
@@ -229,9 +262,9 @@ class PairDatasetFactory:
         if shuffle:
             est_size = tf.size(prot_ids) * tf.size(rna_ids)
             ds = ds.shuffle(buffer_size=tf.cast(tf.minimum(est_size, buffer_cap), tf.int64))
-
-        ds = ds.map(lambda p, r: self._map_pair(p, r, return_ids),
-                    num_parallel_calls=num_parallel_calls)
+        map_fn = (lambda p, r: self._map_pair_xyw(p, r, return_ids)) if self.use_weights \
+                 else (lambda p, r: self._map_pair_xy(p, r, return_ids))
+        ds = ds.map(map_fn,num_parallel_calls=num_parallel_calls)
         ds = ds.batch(batch_size)
         ds = ds.prefetch(tf.data.AUTOTUNE)
         return ds
@@ -246,51 +279,3 @@ class PairDatasetFactory:
         return self.make_dataset(prot_ids, rna_ids, return_ids=True, **kw)
     
 
-
-    # rbps_const = tf.constant(rbps, dtype=tf.float32)          # [P, Dp]
-    # rnas_const = tf.constant(rnas, dtype=tf.int8)          # [R, L, A]
-    # y_const    = tf.constant(intensities, dtype=tf.float32)   # [R, P]
-
-    # P = rbps_const.shape[0]
-    # R = rnas_const.shape[0]
-
-    # # -----------------------------
-    # # Dataset over (protein_id, rna_id) pairs
-    # # -----------------------------
-    # def make_pair_dataset(batch_size=batch_size, shuffle=True,
-    #                     protein_ids=None, rna_ids=None,
-    #                     buffer_cap=100_000):
-    #     """
-    #     Streams (p, r) -> ((rbp_vec, rna_onehot), y[r,p])
-    #     without materializing repeats.
-    #     """
-    #     if protein_ids is None:
-    #         protein_ids = tf.range(P, dtype=tf.int32)
-    #     else:
-    #         protein_ids = tf.convert_to_tensor(protein_ids, dtype=tf.int32)
-
-    #     if rna_ids is None:
-    #         rna_ids = tf.range(R, dtype=tf.int32)
-    #     else:
-    #         rna_ids = tf.convert_to_tensor(rna_ids, dtype=tf.int32)
-
-    #     # Cartesian product lazily
-    #     p_ds = tf.data.Dataset.from_tensor_slices(protein_ids)
-    #     r_ds = tf.data.Dataset.from_tensor_slices(rna_ids)
-
-    #     ds = p_ds.flat_map(lambda p: r_ds.map(lambda r: (p, r)))
-
-    #     if shuffle:
-    #         # Large but bounded buffer; tune for your PR size and RAM
-    #         ds = ds.shuffle(buffer_size=min(buffer_cap, tf.size(protein_ids)*tf.size(rna_ids)))
-
-    #     def map_to_tensors(p, r):
-    #         rbp_vec = tf.gather(rbps_const, p)     # [Dp]
-    #         rna_oh  = tf.gather(rnas_const, r)     # [L, A]
-    #         y = tf.gather(tf.gather(y_const, r), p)  # scalar
-            
-    #         return ({"Protein_representation": rbp_vec, "RNA_Protein_Matrix": rna_oh}, tf.expand_dims(y, axis=-1))
-
-    #     ds = ds.map(map_to_tensors, num_parallel_calls=tf.data.AUTOTUNE)
-    #     ds = ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    #     return ds

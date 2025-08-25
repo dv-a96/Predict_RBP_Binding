@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-from scipy.stats import entropy
+from scipy.stats import entropy, pearsonr
 import seaborn as sns
 import math
 from sklearn.preprocessing import StandardScaler
@@ -99,6 +99,61 @@ def get_corr(file='Evaluation/summ.csv',cols = None):
     print(corr)
     return corr
 
+def analyse_cluster_model(summary_data, bins=30, figsize=(12, 8)):
+    data = pd.read_csv(summary_data)
+    cluster_id = summary_data.split('cluster')[-1].split('.')[0]
+    pred_cols = [col for col in data.columns if col.startswith('predictions_')]
+    label_cols = [col for col in data.columns if col.startswith('labels_')]
+    def suffix_after(prefix, col):
+        return col[len(prefix):]
+    pred_indices = [suffix_after('predictions_', col) for col in pred_cols]
+    label_indices = [suffix_after('labels_', col) for col in label_cols]
+    shared_ids = set(pred_indices).intersection(label_indices)
+    print(f"Found {len(shared_ids)} shared test indices.")
+    n = len(shared_ids) + 1  # +1 for flatten values.
+    ncols = 3
+    nrows = math.ceil(n / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+    axes = np.atleast_1d(axes).ravel()
+    corr=[]
+    def plot_on_ax_flatten_values(ax):
+        feat_values = data[[f'predictions_{idx}' for idx in shared_ids]].values.flatten()
+        label_values = data[[f'labels_{idx}' for idx in shared_ids]].values.flatten()
+        all_vals = np.concatenate([label_values, feat_values])
+        bin_edges = np.linspace(all_vals.min(), all_vals.max(), bins+1)
+        ax.hist(feat_values, bins=bin_edges, alpha=0.6, color="steelblue", label=f'predictions\nMean cor: {np.mean(corr):.3f}')
+        ax.hist(label_values, bins=bin_edges, alpha=0.4, color="orange", label='labels')
+        ax.set_title(f'All')
+        ax.legend()
+    for i, label in enumerate(shared_ids):
+        ax = axes[i]
+        label_values = data[f'labels_{label}'].dropna()
+        feat_values = data[f'predictions_{label}'].dropna()
+        uniq_count = feat_values.nunique()   # number of unique values
+        pearsonR = pearsonr(label_values, feat_values)[0]
+        corr.append(pearsonR)
+        corr_text = f"R={pearsonR:.3f}, unique={uniq_count}"
+        
+        # compute common bin edges across both distributions
+        all_vals = np.concatenate([label_values, feat_values])
+        bin_edges = np.linspace(all_vals.min(), all_vals.max(), bins+1)
+        
+        ax.hist(feat_values, bins=bin_edges, alpha=0.6, color="steelblue", label=f'predictions\n{corr_text}')
+        ax.hist(label_values, bins=bin_edges, alpha=0.4, color="orange", label='labels')
+       
+        ax.set_title(f'{label}')
+        ax.legend()
+    plot_on_ax_flatten_values(axes[i+1])
+    # Hide unused axes
+    for j in range(i+2, len(axes)):
+        axes[j].axis("off")
+    #fig.text(0.5, 0.05, f"Mean cor: {np.mean(corr):.3f}", ha="center", fontsize=12)
+    fig.tight_layout()
+    temp_path = os.path.join(Figures, f"cluster{cluster_id}_analysis.png")
+    plt.savefig(temp_path, dpi=300)
+    plt.close(fig)
+    
+
 def sub_plot_intensities_histo(data_frame, cols = None, bins = 500, name = '',corr_values = None):
     """Plot histograms of intensity distributions for specified columns.
 
@@ -113,7 +168,7 @@ def sub_plot_intensities_histo(data_frame, cols = None, bins = 500, name = '',co
     else:
         # convert integer indices to column names if given
         cols = [data_frame.columns[c] if isinstance(c, int) else c for c in cols]
-
+    cols_filtered = ["_".join(c.rsplit("_")[:-2]) for c in cols]
     n_cols = len(cols)
     nrows = math.ceil(n_cols / 3)    # up to 3 plots per row
     ncols = min(3, n_cols)
@@ -121,9 +176,9 @@ def sub_plot_intensities_histo(data_frame, cols = None, bins = 500, name = '',co
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols*4, nrows*5))
     axes = np.atleast_1d(axes).ravel()  # flatten to 1D array for easy indexing
 
-    for i, col in enumerate(cols):
+    for i, (col,col_filt) in enumerate(zip(cols,cols_filtered)):
         axes[i].hist(data_frame[col].dropna(), bins=bins, color="steelblue", edgecolor="black")
-        axes[i].set_title(col, fontsize=10)
+        axes[i].set_title(col_filt, fontsize=10)
         axes[i].text(
             0.5, 0.9,                                      # (x,y) in axes coords
             f"R: {corr_values[col]:.3f}" if corr_values is not None else "",
@@ -197,18 +252,16 @@ def plot_min_max_intensities_histograms(intensities):
     path = os.path.join(Figures,'Protein_min_max_intensity.png')
     plt.savefig(path,dpi=300)
 
-def plot_intensities_historgram(intensities):
+def plot_intensities_historgram(intensities,name):
     """Plot historgram of the intensities values
 
     Args:
         intensities (Data frame): RNAxRBP
     """
     plt.hist(intensities.values.flatten(), bins=100, color='skyblue', edgecolor='black')
-    plt.xlabel('Intensity')
-    plt.ylabel('Frequency')
-    plt.title('Histogram of All Values in DataFrame')
-    path = os.path.join(Figures,'Intensities_histogram.png')
-    plt.savefig(path,dpi=300)
+    path = os.path.join(Figures,f'Intensities_histogram_{name}.png')
+    plt.savefig(path)
+    plt.close()
 
 ### CHECK CORELATION FOR:
 ''' Rbp length vs intensity
@@ -397,20 +450,21 @@ if __name__ == '__main__':
     # X_pca_150 = pca_data[:, :150]
 
     # plot_tsne_vs_umap(X_pca_150,processed=True)
-    cols = ["quantile_labels","ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
-            "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
-            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop",
-            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-40-01.keras",
-            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-35-27.keras",
-            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-28-23.keras","esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-11-37.keras"]
-    corr = get_corr(cols=cols)
+    # cols = ["quantile_labels","ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
+    #         "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
+    #         "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop",
+    #         "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-40-01.keras",
+    #         "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-35-27.keras",
+    #         "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-28-23.keras","esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-11-37.keras"]
+    # corr = get_corr()
     
-    # sub_plot_intensities_histo("Evaluation/summ.csv",cols=cols,name="Histo_ESM_OPT_LOSS",corr_values = corr)
-    cols_ = ["ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
-            "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
-            "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop",
-            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-40-01.keras",
-            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-35-27.keras",
-            "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-28-23.keras","esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-11-37.keras"]
-    overlay_label_feature_histograms(df="Evaluation/summ.csv", label_col="quantile_labels", 
-                                     feature_cols=cols_, bins=500, figsize=(14, 8), corr_values=corr)
+    # sub_plot_intensities_histo("Evaluation/summ.csv",cols=None,name="Histo_ESM_OPT_LOSS",corr_values = corr)
+    # cols_ = ["ESM_CNN_Guas","esm_cnn_MSE","esm_cnn_logcosh","esm_cnn_logcosh_RMSprop","esm_cnn_MAE",
+    #         "only_rna64_MSE_Adam","only_rna_7_964_MSE_Adam","only_rna_sec64_MSE_Adam",
+    #         "only_rna_sec64_MAE_Adam","only_rna_sec64_logcosh_RMSprop",
+    #         "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-40-01.keras",
+    #         "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-35-27.keras",
+    #         "esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-28-23.keras","esm_cnn_guas_logcosh_RMSprop_2025-08-21_14-11-37.keras"]
+    # overlay_label_feature_histograms(df="Evaluation/summ.csv", label_col="quantile_labels", 
+    #                                  feature_cols=cols_, bins=500, figsize=(14, 8), corr_values=corr)
+    analyse_cluster_model("/home/dsi/lubosha/Predict_RBP_Binding/Evaluation/summary_cluster_3.csv")

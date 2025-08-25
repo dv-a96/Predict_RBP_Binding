@@ -1,10 +1,9 @@
 import os
 from datetime import datetime
 from tensorflow.keras.models import load_model
-from model_utilities import correlation_coefficient_loss, gaussian_nll,mse_from_mu,mae_from_mu
+from model_utilities import *
 from train_test_utilities import *
 from data_processing import *
-from naming_utilities import create_model_name
 from scipy.stats import pearsonr,spearmanr
 from logger_utils import create_logger
 
@@ -12,12 +11,16 @@ base_dir = "Models"
 checkpoint_dir = os.path.join(base_dir, "Checkpoints")
 os.makedirs(checkpoint_dir, exist_ok=True)
 EVAL_FOLDER = 'Evaluation'
-
+BATCH_SIZE = 1024
 
 CUSTOM_OBJECTS = {"correlation_coefficient_loss":correlation_coefficient_loss,
                   "gaussian_nll":gaussian_nll,
                   "mse_from_mu":mse_from_mu,
-                  "mae_from_mu":mae_from_mu}
+                  "mae_from_mu":mae_from_mu,
+                  "two_piece_laplace_nll":two_piece_laplace_nll,
+                  "two_piece_t_nll":two_piece_t_nll,
+                  "two_piece_normal_nll":two_piece_normal_nll,
+                  "pearson_corr":pearson_corr}
 
 def add_preds_to_eval_file(preds, model_name):
     eval_file_path = os.path.join(EVAL_FOLDER, f'summ.csv')
@@ -30,13 +33,56 @@ def add_preds_to_eval_file(preds, model_name):
         data[model_name] = preds
         data.to_csv(eval_file_path, index=False)
 
+
+def evaluate_pident_knn(pident='Data_sets/pident.csv', K =3 , test_indice = None):
+    pass
+
+
+def evalute_cluster_model(folder, cluster_id,normalization_method=''):
+    models = ["/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn_cluster3/esm_cnn_regression_alpha0.5_bins20_clamp99.5_MSE_Adam_2025-08-24_19-26-34.keras"]
+    summary_data = f'Evaluation/summary_cluster_{cluster_id}_clamp.csv'
+    if os.path.exists(summary_data):
+        # load existing file
+        data = pd.read_csv(summary_data)
+    else:
+        # create empty DataFrame and save it
+        data = pd.DataFrame()
+    rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(normalization_method=normalization_method)
+    rnas = rna_one_hot(rnas)
+    rbps = get_ESM_prot_vecs()
+    rnas = rnas[:,:,:4] # keep only the first 4 bits.
+    factory = PairDatasetFactory(rbps,rnas,intensities,place_on_cpu=True)
+    test_indices = get_clusteres_indices(cluster_id=cluster_id)
+    for model in models:
+        if model in data.columns:
+            continue
+        #model_path = os.path.join(folder,model)
+        model_path = model
+        model_name = model.rsplit("_", 2)[:-2][0]
+        model = load_model(model_path,custom_objects=CUSTOM_OBJECTS)
+        for test_indice in test_indices:
+            single_data = factory.make_train(batch_size=BATCH_SIZE, shuffle=False, prot_ids=[test_indice])
+            pred = model.predict(single_data)
+            pred = pred.reshape(-1)
+            data[f'predictions_{test_indice}'] = pred
+            if f'labels_{test_indice}' not in data.columns:
+                data[f'labels_{test_indice}'] = intensities[:,test_indice] 
+    data.to_csv(summary_data, index=False)
+    
+
+
+
+        
+    
+
 def compare_models_in_folder(folder=".."):
-    logger = create_logger(f'scaling')
+    
     models = [f for f in os.listdir(folder) if f.endswith('.keras')]
+    #models = ['/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn/esm_cnn_regression_alpha1_bins20_MSE_Adam_2025-08-24_11-22-58.keras']
     #model_names = [f.rsplit("_", 2)[:-2][0]for f in models]
     summary_data = 'Evaluation/summ.csv'
     data =pd.read_csv(summary_data)
-    rnas, rbps, intensities = prepare_training_data(logger=logger,normalization_method='quantile')
+    rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(logger=None,normalization_method='quantile')
     rnas = rna_one_hot(rnas)
     rbps = get_ESM_prot_vecs()
     rnas = rnas[:,:,:4] # keep only the first 4 bits.
@@ -49,9 +95,10 @@ def compare_models_in_folder(folder=".."):
             continue
         else:
             model = load_model(os.path.join(folder,model_path),custom_objects=CUSTOM_OBJECTS)
+            #model = load_model(model_path,custom_objects=CUSTOM_OBJECTS)
             preds = model.predict([rbp_indice,rnas],batch_size=4096)
             preds = preds[:,:1]
-            data[model_name] = preds.reshape(-1)
+            data[model_name.split("/")[-1]] = preds.reshape(-1)
     data.to_csv(summary_data, index=False)
 
 
@@ -227,5 +274,8 @@ def evaluate_model(model_name, exclude_num = 20, seed = 42, batch_size = 2048, m
     # true_intensities = intensities[:,test_indices]
     # correlations = pearson_stats(true_intensities,pred_intensities)
     # print(correlations)
-compare_models_in_folder("/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn_guas")
+#compare_models_in_folder("/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_loss_bin")
 #evaluate_model('Only_RNA_sec',exclude_num=199)
+evalute_cluster_model('Models/Checkpoints/esm_cnn_cluster3',
+                       cluster_id=3)
+

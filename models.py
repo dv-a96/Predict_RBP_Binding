@@ -435,7 +435,7 @@ def build_esm_CNN_backbone(prot_input=(312,), rna_input=(41,4),
     return prot_in,rna_in, features
 
 def build_ESM_CNN(prot_input=(312,), rna_input=(41,4),loss_idx= 1, check_points_folder = None, tensorboard_folder = None,
-                    opt_idx = 2, plateauPatience=3, earlyStopPatience=5, model_type='regression'):
+                    opt_idx = 2, plateauPatience=3, earlyStopPatience=5, model_type='regression', sigmoid_head=False):
     """_summary_
 
     Args:
@@ -455,31 +455,36 @@ def build_ESM_CNN(prot_input=(312,), rna_input=(41,4),loss_idx= 1, check_points_
     Returns:
         _type_: _description_
     """
+    metrics_list = [mse_from_mu, mae_from_mu,pearson_corr]
     prot_in, rna_in, features = build_esm_CNN_backbone(prot_input, rna_input)
     myOptimizer = get_optimizer(1,0.001)
     model_type = 'regression' if model_type is None or model_type == '' else model_type.lower()
     if model_type == 'regression':
-        output = layers.Dense(1, activation='linear', name="output")(features)
+        if sigmoid_head:
+            output = layers.Dense(1, activation='sigmoid', name="output")(features)
+        else:
+            output = layers.Dense(1, activation='linear', name="output")(features)
         model = models.Model(inputs=[prot_in,rna_in], outputs=output, name="ESM_CNN_Regression")
         myOptimizer = get_optimizer(opt_idx,0.001)
         myLoss = get_loss(loss_idx)
-        model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
+        model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[pearson_corr])
+    
     elif model_type == 'gaussian':
         out = layers.Dense(2, name="gaus_params")(features)  # [mu, log_sigma]
         model = models.Model(inputs=[prot_in,rna_in], outputs=out, name="ESM_CNN_Gausian")
-        model.compile(optimizer=myOptimizer, loss=gaussian_nll, metrics=[mse_from_mu,mae_from_mu])
+        model.compile(optimizer=myOptimizer, loss=gaussian_nll, metrics=metrics_list)
     elif model_type == 'asymmetric_gaussian':
         out = layers.Dense(3, name="asym_gaus_params")(features)  # [mu, log_sigma_l, log_sigma_r]
         model = models.Model(inputs=[prot_in,rna_in], outputs=out, name="ESM_CNN_Asym_Gausian")
-        model.compile(optimizer=myOptimizer, loss=two_piece_normal_nll, metrics=[mse_from_mu,mae_from_mu])
+        model.compile(optimizer=myOptimizer, loss=two_piece_normal_nll, metrics=metrics_list)
     elif model_type == 'asymmetric_laplace':
         out = layers.Dense(3, name="laplace_params")(features)  # [mu, log_b_l, log_b_r]
         model = models.Model(inputs=[prot_in,rna_in], outputs=out, name="ESM_CNN_Asym_Laplace")
-        model.compile(optimizer=myOptimizer, loss=two_piece_laplace_nll, metrics=[mse_from_mu,mae_from_mu])
+        model.compile(optimizer=myOptimizer, loss=two_piece_laplace_nll, metrics=metrics_list)
     elif model_type == 'asymmetric_t':
         out = layers.Dense(4, name="laplace_params")(features)  # [mu, log_sigma_l, log_sigma_r, raw_nu]
         model = models.Model(inputs=[prot_in,rna_in], outputs=out, name="ESM_CNN_Asym_T")
-        model.compile(optimizer=myOptimizer, loss=two_piece_laplace_nll, metrics=[mse_from_mu,mae_from_mu])
+        model.compile(optimizer=myOptimizer, loss=two_piece_t_nll, metrics=metrics_list)
     else:
         raise ValueError("Invalid model_type. Choose from 'regression', 'gaussian', 'asymmetric_gaussian', 'asymmetric_laplace', 'asymmetric_t'.")
     callbacksList = get_callbacks(check_points_folder,tensorboard_folder,plateauPatience,earlyStopPatience)
