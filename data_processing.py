@@ -528,7 +528,15 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
 
 
 def create_similar_matrix_from_mmseq2(similarity_output = 'Data_sets/similarity_train.tsv',col_value= 'pident'):
-    ids_sorted = [f'seq{i+1}'for i in range(200)]
+    """Create a similarity matrix from mmseq2 output tsv file.
+    Col_value can be pident, qcov, evalue, bits.
+    The similary is based on the col_value.
+
+    Args:
+        similarity_output (str, optional): path. Defaults to 'Data_sets/similarity_train.tsv'.
+        col_value (str, optional): str. Defaults to 'pident'.
+    """
+    ids_sorted = [f'seq{i+1}'for i in range(200)] # CHNAGE THIS TO NUMBER OF SEQUENCES!!
     cols = ["query","target","pident","alnlen","qlen","tlen","qcov","tcov","evalue","bits"]
     df = pd.read_csv(similarity_output, sep="\t", names=cols)
     
@@ -539,6 +547,15 @@ def create_similar_matrix_from_mmseq2(similarity_output = 'Data_sets/similarity_
     mat.to_csv(f"{col_value}.csv")
 
 def get_simliary_dict(similarity_score='Data_sets/pident.csv', treshold=  80):
+    """Get a dictionary of similar protines/rnas based on the similarity score matrix.
+
+    Args:
+        similarity_score (matrix of simlirties scores, optional): path. Defaults to 'Data_sets/pident.csv'.
+        treshold (int, optional): above what treshold to compare. Defaults to 80.
+
+    Returns:
+        dict: pairs of similartites
+    """
     mat = pd.read_csv(similarity_score)
     s = mat.where(mat > treshold).stack()
     similariteis = {index:s.loc[index].to_dict() for index in mat.index}
