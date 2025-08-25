@@ -187,6 +187,17 @@ def pearson_corr(y_true, y_pred):
         tf.sqrt(tf.reduce_sum(tf.square(ym))) + 1e-8
     )
     return corr
+def pearson_corr_from_mu(y_true, y_pred):
+    mu = y_pred[:, :1]
+    y_true = tf.reshape(y_true, [-1])
+    y_pred = tf.reshape(mu, [-1])
+    xm = y_true - tf.reduce_mean(y_true)
+    ym = y_pred - tf.reduce_mean(y_pred)
+    corr = tf.reduce_sum(xm * ym) / (
+        tf.sqrt(tf.reduce_sum(tf.square(xm))) *
+        tf.sqrt(tf.reduce_sum(tf.square(ym))) + 1e-8
+    )
+    return corr
 def correlation_coefficient_loss(y_true, y_pred):
     '''
     Use K.epsilon() == 10^-7 to avoid divide by zero error    

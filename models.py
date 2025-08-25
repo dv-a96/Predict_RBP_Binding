@@ -455,7 +455,7 @@ def build_ESM_CNN(prot_input=(312,), rna_input=(41,4),loss_idx= 1, check_points_
     Returns:
         _type_: _description_
     """
-    metrics_list = [mse_from_mu, mae_from_mu,pearson_corr]
+    metrics_list = [mse_from_mu, mae_from_mu,pearson_corr_from_mu]
     prot_in, rna_in, features = build_esm_CNN_backbone(prot_input, rna_input)
     myOptimizer = get_optimizer(1,0.001)
     model_type = 'regression' if model_type is None or model_type == '' else model_type.lower()

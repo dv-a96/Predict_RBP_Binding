@@ -255,15 +255,26 @@ if __name__ =="__main__":
     alphas = 0.5
     clamp_by_percentile_options = False
     if_sample_weights_options = True
-    losses = 1
+    losses = [1,5]
     opts = 2
-    clusters = [1,2,3,'all']
-    cluster = 3
-    norm_method = 'boxcox'
-    train_held_out_test("ESM_CNN",loss_idx=losses,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
+    norm_methods = ['quantile','meannorm']
+
+    cluster = 'all'
+    for norm_method in norm_methods:
+        for loss in losses:
+            if norm_method == "quantile" and loss ==1:
+                continue
+            train_held_out_test("ESM_CNN",loss_idx=loss,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
                         if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
                         remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,normalization_method=norm_method)                        
-    
+    disterbutions = ['asymmetric_t','asymmetric_laplace']
+    for model_type in disterbutions:
+        for norm_method in norm_methods:
+            train_held_out_test("ESM_CNN",loss_idx=1,opt_idx=2,if_sample_wieght=if_sample_weights_options,
+                        if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
+                        remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,model_type=model_type,
+                        normalization_method=norm_method)
+       
     # for los in losses:
     #     train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=los,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
     #                     if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas)

@@ -177,7 +177,7 @@ class PairDatasetFactory:
     Holds TF tensors for rbps/rnas/intensities and produces tf.data datasets
     without duplicating memory. Convert to TF once, reuse many times.
     """
-    def __init__(self, rbps_np, rnas_np, intensities_np, place_on_cpu=True, 
+    def __init__(self, rbps_np, rnas_np, intensities_np=None, place_on_cpu=True, 
                  sample_weight_array = None):
         self.use_weights = False
         if sample_weight_array is not None:
@@ -190,7 +190,8 @@ class PairDatasetFactory:
             with tf.device(device):
                 self.rbps = tf.convert_to_tensor(rbps_np, dtype=tf.float32)        # [P, Dp]
                 self.rnas = tf.convert_to_tensor(rnas_np, dtype=tf.int8)        # [R, L, A]
-                self.y    = tf.convert_to_tensor(intensities_np, dtype=tf.float32) # [R, P]
+                if intensities_np is not None:
+                    self.y    = tf.convert_to_tensor(intensities_np, dtype=tf.float32) # [R, P]
                 if self.use_weights:
                 
                     self.w = tf.convert_to_tensor(sample_weight_array, dtype=tf.float32)    # [R, P]
@@ -199,7 +200,8 @@ class PairDatasetFactory:
         else:
             self.rbps = tf.convert_to_tensor(rbps_np, dtype=tf.float32)
             self.rnas = tf.convert_to_tensor(rnas_np, dtype=tf.int8)
-            self.y    = tf.convert_to_tensor(intensities_np, dtype=tf.float32)
+            if intensities_np is not None:
+                self.y    = tf.convert_to_tensor(intensities_np, dtype=tf.float32)
             if self.use_weights:
                 self.w = tf.convert_to_tensor(sample_weight_array, dtype=tf.float32)    # [R, P]
             else:
@@ -208,8 +210,14 @@ class PairDatasetFactory:
 
         self.P = tf.shape(self.rbps)[0]
         self.R = tf.shape(self.rnas)[0]
-    
-    
+    # returns x only
+    def _map_pair_x_only(self, p, r, return_ids: bool):
+        rbp_vec = tf.gather(self.rbps, p)
+        rna_oh  = tf.gather(self.rnas, r)
+        features = (rbp_vec, rna_oh)
+        if return_ids:
+            return (features), (p, r)
+        return features
     # returns (x, y)
     def _map_pair_xy(self, p, r, return_ids: bool):
         rbp_vec = tf.gather(self.rbps, p)
@@ -262,8 +270,12 @@ class PairDatasetFactory:
         if shuffle:
             est_size = tf.size(prot_ids) * tf.size(rna_ids)
             ds = ds.shuffle(buffer_size=tf.cast(tf.minimum(est_size, buffer_cap), tf.int64))
-        map_fn = (lambda p, r: self._map_pair_xyw(p, r, return_ids)) if self.use_weights \
-                 else (lambda p, r: self._map_pair_xy(p, r, return_ids))
+        if self.use_weights:
+            map_fn = lambda p, r: self._map_pair_xyw(p, r, return_ids)
+        elif self.y is not None:
+            map_fn = lambda p, r: self._map_pair_xy(p, r, return_ids)
+        else:
+            map_fn = lambda p, r: self._map_pair_x_only(p, r, return_ids)
         ds = ds.map(map_fn,num_parallel_calls=num_parallel_calls)
         ds = ds.batch(batch_size)
         ds = ds.prefetch(tf.data.AUTOTUNE)

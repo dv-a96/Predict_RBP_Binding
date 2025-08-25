@@ -161,12 +161,12 @@ def preprocess_intensities(intensities_df, logger=None , method=None, unit_lengt
         col_mean = intensities_df.mean(axis=0)
         intensities_df = (intensities_df - col_mean) / (col_max - col_min + 1e-9)
 
-    elif "boxcox" in method:
-        intensities_df = intensities_df+ 1e-9  # Box-Cox requires positive values
+    elif "yeo-johnson" in method:
+        intensities_df = intensities_df+ 1e-6  # Box-Cox requires positive values
         if (intensities_df <= 0).any().any():
             raise ValueError("Box Cox requires strictly positive values.")
         intensities_df = pd.DataFrame(
-            PowerTransformer(method="box-cox").fit_transform(X),
+            PowerTransformer(method="yeo-johnson").fit_transform(X),
             columns=intensities_df.columns,
             index=intensities_df.index
         )
