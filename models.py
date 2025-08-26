@@ -10,25 +10,6 @@ from keras import regularizers
 from keras import Input
 from model_utilities import *
 
-#### NOTE: Future addition:
-""" 
-1. Early stop based on training steps?
-2. Reduce LR based on training steps?
-3. Convert model compile and optizmiers so on to externall function avoid recoding.
-
-4. Proberating.
-5. ESM model.
-6. RNA embedded model.
-
-7. Model evalutions - compare losses, pearson r to test set, split test set.
-8. Intensities normalization.
-
-9. Additional features: ...
-10. Introduce Blossum bias!
-"""
-
-
-
 
 
 def probe_rating(activationFunc='tanh', protein_vector_length = 1612, rna_vector_length = 1024, plateauPatience = 3,
@@ -314,66 +295,6 @@ def Only_RNA(rna_input = (41,4),loss_idx= 1, check_points_folder = None, tensorb
     print(model.summary())
     return model, callbacksList
 
-def ESM_CNN_Oren(prot_input = (312,),rna_input = (41,4)):
-    params_dict = {
-        "dropout": 0.362233801349954,
-        "epochs": 78,
-        "batch" : 4096,
-        "regu": 5.7215002041656515e-06,
-        "hidden1" : 6029,
-        "hidden2" : 1168,
-        "filters1" : 2376,
-        "hidden_sec" : 152,
-        "filters_sec" : 151,
-        "leaky_alpha" : 0.23149394545024274,
-        "filters_long_length" : 24,
-        "filters_long" : 51
-    }
-    inputTensor = Input(shape=rna_input, name='RNA_Protein_Matrix')
-
-    conv_kernel_long = layers.Conv1D(params_dict["filters_long"], kernel_size=params_dict["filters_long_length"], activation='relu', use_bias=True,
-                              kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # Long kernel - its purpose is to identify structure preferences
-    conv_kernel_11 = layers.Conv1D(filters=params_dict["filters1"], kernel_size=11, activation='relu', use_bias=True,
-                            kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # kernel of 11 nucleotides
-    conv_kernel_9 = layers.Conv1D(filters=params_dict["filters1"], kernel_size=9, activation='relu', use_bias=True,
-                           kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # kernel of 9 nucleotides
-    conv_kernel_7 = layers.Conv1D(filters=params_dict["filters1"], kernel_size=7, activation='relu', use_bias=True,
-                           kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # kernel of 7 nucleotides
-    conv_kernel_5 = layers.Conv1D(filters=params_dict["filters1"], kernel_size=5, activation='relu', use_bias=True,
-                           kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor)  # kernel of 5 nucleotides
-    conv_kernel_5_sec = layers.Conv1D(filters=params_dict["filters_sec"], kernel_size=5, activation='relu', use_bias=True,
-                             kernel_regularizer=regularizers.l2(params_dict["regu"]))(inputTensor) # kernel of 5 nucleotides - second path
-
-    max_pool_long = layers.MaxPooling1D(pool_size=(40 - params_dict["filters_long_length"]))(conv_kernel_long)
-    max_pool_11 = layers.MaxPooling1D(pool_size=(31))(conv_kernel_11)
-    max_pool_9 = layers.MaxPooling1D(pool_size=(33))(conv_kernel_9)
-    max_pool_7 = layers.MaxPooling1D(pool_size=(35))(conv_kernel_7)
-    max_pool_5 = layers.MaxPooling1D(pool_size=(37))(conv_kernel_5)
-    max_pool_5_sec = layers.MaxPooling1D(pool_size=(37))(conv_kernel_5_sec)
-    prot_tensor = Input(shape=prot_input, name='Protein_representation')
-    prot_ = layers.Flatten()(prot_tensor)
-    merge2 = layers.concatenate([max_pool_11, max_pool_7, max_pool_long, max_pool_9, max_pool_5]) #merge first path
-    fl_rel = layers.Flatten()(merge2) #Flatten layer
-    fl_sec = layers.Flatten()(max_pool_5_sec) #Flatten layer - second path
-    drop_fl_sec = layers.Dropout(params_dict["dropout"], name="drop_fl_el")(fl_sec) #Dropout
-    drop_flat = layers.Dropout(params_dict["dropout"], name="drop_flat")(fl_rel)
-    hidden_dense_sec = layers.Dense(params_dict["hidden_sec"], activation='relu')(drop_fl_sec)
-    hidden_dense_relu = layers.Dense(params_dict["hidden1"], activation='relu')(drop_flat)  # 4096
-    drop_hidden_dense_relu = layers.Dropout(params_dict["dropout"], name="drop_hidden_dense_relu")(hidden_dense_relu)
-    hidden_dense_relu1 = layers.Dense(params_dict["hidden2"], activation='relu')(drop_hidden_dense_relu)  # 1024 best
-    
-    merge_4 = layers.concatenate([hidden_dense_sec, hidden_dense_relu1, drop_flat, hidden_dense_relu,prot_])
-    output = layers.Dense(1, activation='linear')(merge_4)
-    model = models.Model(inputs=[inputTensor,prot_tensor], outputs=output)
-    myOptimizer = get_optimizer(2,0.001)
-    myLoss = get_loss(1)
-    model.compile(optimizer=myOptimizer, loss=myLoss, metrics=[correlation_coefficient_loss])
-    full_name = create_model_name("ESM_OREN","")
-    # Callbacks
-    checkPtFile, tensorBoardDir = init_checkpoint_and_tensorboard(full_name)
-    callbacksList = get_callbacks(checkPtFile,tensorBoardDir)
-    print(model.summary())
-    return model, callbacksList
 def MLP_Model(input_shape=None,activationFunc='relu', l2weight=0.0, l1weight=0.01, dropoutRate=0.5,
               lossIdx=1, optimizerIdx=2, lrate=0.001, plateauPatience=3,
               earlyStopPatience=10,mlp_layers = [64]):
@@ -400,63 +321,131 @@ def MLP_Model(input_shape=None,activationFunc='relu', l2weight=0.0, l1weight=0.0
 
 
 def build_esm_CNN_backbone(prot_input=(312,), rna_input=(41,4),
-                   regu=5.7215002041656515e-06, dropout=0.362233801349954):
+                   regu=5.7215002041656515e-06, dropout=0.362233801349954, dict_version= 1):
+    version_dict ={
+        1: {'long_filters':51, 'short_filters':512, 'prot_conv': False, 
+            'rna_2_conv': False, 'dense1':256, 'dense2':128,
+            'dense3': 0, 'batch_norm_rna': False, 'batch_norm_prot':False,'batch_norm_merged': False},
+        
+        2: {'long_filters':51, 'short_filters':512, 'prot_conv': False, 
+            'rna_2_conv': False, 'dense1':256, 'dense2':128,
+            'dense3': 0, 'batch_norm_rna': False, 'batch_norm_prot':False,'batch_norm_merged': True},
+
+        3: {'long_filters':51, 'short_filters':512, 'prot_conv': True,
+            'rna_2_conv': False, 'dense1':256, 'dense2':128,
+            'dense3': 0, 'batch_norm_rna': False, 'batch_norm_prot':False,'batch_norm_merged': True},
+
+        4: {'long_filters':51, 'short_filters':512, 'prot_conv': True,
+            'rna_2_conv': False, 'dense1':256, 'dense2':128,
+            'dense3': 0, 'batch_norm_rna': True, 'batch_norm_prot':True,'batch_norm_merged': True},
+        
+        5: {'long_filters':51, 'short_filters':1024, 'prot_conv': False,
+            'rna_2_conv': False, 'dense1':512, 'dense2':256,
+            'dense3': 128, 'batch_norm_rna': False, 'batch_norm_prot':False,'batch_norm_merged': False},
+        
+        6: {'long_filters':51, 'short_filters':1024, 'prot_conv': True,
+            'rna_2_conv': False, 'dense1':512, 'dense2':256,
+            'dense3': 128, 'batch_norm_rna': True, 'batch_norm_prot':True,'batch_norm_merged': True},
+
+        7: {'long_filters':51, 'short_filters':1024, 'prot_conv': True,
+            'rna_2_conv': True, 'dense1':512, 'dense2':256,
+            'dense3': 128, 'batch_norm_rna': True, 'batch_norm_prot':True,'batch_norm_merged': True}
+
+
+
+        
+    }
+    params_dict = version_dict.get(dict_version, version_dict[1])
     # RNA branch
     rna_in = Input(shape=rna_input, name='RNA_Protein_Matrix')
-    conv_long = layers.Conv1D(51, 24, activation='relu', use_bias=True,
+    conv_long = layers.Conv1D(params_dict['long_filters'], 24, use_bias=True,
                               kernel_regularizer=regularizers.l2(regu))(rna_in)
-    conv_11   = layers.Conv1D(512, 11, activation='relu', use_bias=True,
+    conv_11   = layers.Conv1D(params_dict['short_filters'], 11, use_bias=True,
                               kernel_regularizer=regularizers.l2(regu))(rna_in)
-    conv_5    = layers.Conv1D(512, 5, activation='relu', use_bias=True,
+    conv_5    = layers.Conv1D(params_dict['short_filters'], 5, use_bias=True,
                               kernel_regularizer=regularizers.l2(regu))(rna_in)
-    conv_3    = layers.Conv1D(512, 3, activation='relu', use_bias=True,
+    conv_3    = layers.Conv1D(params_dict['short_filters'], 3, use_bias=True,
                               kernel_regularizer=regularizers.l2(regu))(rna_in)
+    if params_dict['batch_norm_rna']:
+        conv_long = layers.BatchNormalization()(conv_long)
+        conv_11   = layers.BatchNormalization()(conv_11)
+        conv_5    = layers.BatchNormalization()(conv_5)
+        conv_3    = layers.BatchNormalization()(conv_3)
+    conv_long = layers.ReLU()(conv_long)
+    conv_11   = layers.ReLU()(conv_11)
+    conv_5    = layers.ReLU()(conv_5)
+    conv_3    = layers.ReLU()(conv_3)
 
     pool_long = layers.MaxPooling1D(10)(conv_long)
     pool_11   = layers.MaxPooling1D(21)(conv_11)
     pool_5    = layers.MaxPooling1D(27)(conv_5)
     pool_3    = layers.MaxPooling1D(29)(conv_3)
-
     merged_rna = layers.concatenate([pool_11, pool_3, pool_5, pool_long])
-    flat_rna   = layers.Flatten()(merged_rna)
+    if params_dict['rna_2_conv']:
+        conv_2_rna = layers.Conv1D(params_dict['short_filters'], 3, use_bias=True,
+                              kernel_regularizer=regularizers.l2(regu))(merged_rna)
+        flat_rna = layers.Flatten()(conv_2_rna)
+    else:
+        flat_rna = layers.Flatten()(merged_rna)
+    #merged_rna = layers.concatenate([pool_11, pool_3, pool_5, pool_long])
     drop_flat  = layers.Dropout(dropout, name="drop_flat")(flat_rna)
 
-    dense_rna  = layers.Dense(256, activation='relu')(drop_flat)
+    dense_rna  = layers.Dense(params_dict['dense1'], activation='relu')(drop_flat)
     drop_rna   = layers.Dropout(dropout, name="drop_hidden_dense_relu")(dense_rna)
+    
+    
 
     # Protein branch
     prot_in = Input(shape=prot_input, name='Protein_representation')
-    prot_flat = layers.Flatten()(prot_in)
-
+    if params_dict['prot_conv']:
+        prot_conv = layers.Reshape((prot_input[0],1))(prot_in)
+        prot_conv = layers.Conv1D(256, 3, activation='relu', use_bias=True,
+                              kernel_regularizer=regularizers.l2(regu))(prot_conv)
+        prot_conv = layers.GlobalMaxPooling1D()(prot_conv)
+        prot_flat = layers.Flatten()(prot_conv)
+    else:
+        prot_flat = layers.Flatten()(prot_in)
+    if params_dict['batch_norm_prot']:
+        prot_flat = layers.BatchNormalization()(prot_flat)
     # Merge branches
     merged = layers.concatenate([prot_flat, drop_rna])
-    features = layers.Dense(128, activation='relu', name="shared_features")(merged)
+    if params_dict['batch_norm_merged']:
+        merged = layers.BatchNormalization()(merged)
+
+    features = layers.Dense(params_dict['dense2'], activation='relu', name="shared_features")(merged)
+    if params_dict['dense3'] > 0:
+        features = layers.Dense(params_dict['dense3'], activation='relu', name="shared_features_2")(features)
+        features = layers.Dropout(dropout, name="drop_features")(features)
+
+
 
     return prot_in,rna_in, features
 
 def build_ESM_CNN(prot_input=(312,), rna_input=(41,4),loss_idx= 1, check_points_folder = None, tensorboard_folder = None,
-                    opt_idx = 2, plateauPatience=3, earlyStopPatience=5, model_type='regression', sigmoid_head=False):
-    """_summary_
+                    opt_idx = 2, plateauPatience=3, earlyStopPatience=5, model_type='regression', sigmoid_head=False, dict_version=1):
+    """Build an a model that accpets ESM protein embeddings and RNA one-hot encoding as input.
+    The model can be used for regression or uncertainty estimation using different output layers and loss functions.
 
     Args:
         prot_input (tuple, optional): _description_. Defaults to (312,).
         rna_input (tuple, optional): _description_. Defaults to (41,4).
         loss_idx (int, optional): _description_. Defaults to 1.
-        check_points_folder (_type_, optional): _description_. Defaults to None.
-        tensorboard_folder (_type_, optional): _description_. Defaults to None.
+        check_points_folder (str, optional): path. Defaults to None.
+        tensorboard_folder (str, optional): path. Defaults to None.
         opt_idx (int, optional): _description_. Defaults to 2.
         plateauPatience (int, optional): _description_. Defaults to 3.
         earlyStopPatience (int, optional): _description_. Defaults to 5.
         model_type (str, optional): type of the model output. Defaults to 'regression'. regression, gaussian, asymmetric_gaussian, asymmetric_laplace, asymmetric_t
-
+        sigmoid_head (bool, optional): Whether to use a sigmoid activation in the regression head. Defaults to False.
+        dict_version (int, optional): Version of the ESM_CNN architecture to use. Defaults to 1.
     Raises:
         ValueError: _description_
 
     Returns:
-        _type_: _description_
+        keras model, callbacks: _description_
     """
     metrics_list = [mse_from_mu, mae_from_mu,pearson_corr_from_mu]
-    prot_in, rna_in, features = build_esm_CNN_backbone(prot_input, rna_input)
+    prot_in, rna_in, features = build_esm_CNN_backbone(prot_input, rna_input,dict_version=dict_version)
     myOptimizer = get_optimizer(1,0.001)
     model_type = 'regression' if model_type is None or model_type == '' else model_type.lower()
     if model_type == 'regression':

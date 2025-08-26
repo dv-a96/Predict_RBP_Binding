@@ -10,10 +10,23 @@ import math
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from data_processing import quantile_normalize, clamp_by_precentile
+from sklearn.metrics.pairwise import cosine_similarity
+
+from data_processing import get_ESM_prot_vecs
 
 
+def prot_similarity_cosine():
+    prot_vecs = get_ESM_prot_vecs()
+    cos_sim_matrix = cosine_similarity(prot_vecs)
 
+def top_k_similar(idx,cos_sim_matrix, k=5):
+    # Similarities for the chosen index
+    sims = cos_sim_matrix[idx]
+    # Exclude self by setting to -inf (so it never gets picked)
+    sims[idx] = -np.inf  
+    # Get indices of top k
+    top_indices = np.argsort(sims)[-k:][::-1]  # sort descending
+    return top_indices
 # rbps = 'Data_sets/training_RBPs2.txt'
 # intensities = 'Data_sets/training_data2.txt.gz'
 # rnas = 'Data_sets/training_seqs.txt'

@@ -9,6 +9,8 @@ timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras import optimizers
+
+
 LOSSES = {
     1: 'MSE',
     2: 'MAPE',
@@ -54,7 +56,8 @@ def create_model_name(model_name, mlp_layers, model_type='regression'):
 
 def init_checkpoint_and_tensorboard(model_name,loss_key=None , opt_idx = None, model_type='regression', mlp_layers = [],
                                     if_sample_wieght=False, alpha=None, bins=None, if_clamp_by_percentile = False,
-                        percentile = None,cluster_id = None,remove_rna_dups = False,norm_method = None):
+                        percentile = None,cluster_id = None,remove_rna_dups = False,norm_method = None,
+                        model_version = None):
     """Initialize checkpoint and TensorBoard directories with model name and timestamp."""
     # Optional: add timestamp and model name to distinguish runs
     global checkpoint_dir, tensorboard_dir
@@ -68,6 +71,8 @@ def init_checkpoint_and_tensorboard(model_name,loss_key=None , opt_idx = None, m
     os.makedirs(tensorboard_dir_, exist_ok=True)
     
     model_name = create_model_name(model_name, mlp_layers, model_type=model_type)
+    if model_version is not None:
+        model_name = f"{model_name}_v{model_version}"
     if norm_method is not None:
         model_name = f"{model_name}_{norm_method}"
     if if_sample_wieght:
@@ -255,3 +260,12 @@ def get_callbacks(checkPtFile, tensorBoardDir, plateauPatience = 0,earlyStopPati
     if earlyStopPatience:
         callbacksList.append(EarlyStopping(monitor="val_loss", patience=earlyStopPatience,verbose=1,restore_best_weights=True))
     return callbacksList
+CUSTOM_OBJECTS = {"correlation_coefficient_loss":correlation_coefficient_loss,
+                  "gaussian_nll":gaussian_nll,
+                  "mse_from_mu":mse_from_mu,
+                  "mae_from_mu":mae_from_mu,
+                  "two_piece_laplace_nll":two_piece_laplace_nll,
+                  "two_piece_t_nll":two_piece_t_nll,
+                  "two_piece_normal_nll":two_piece_normal_nll,
+                  "pearson_corr":pearson_corr,
+                  "pearson_corr_from_mu":pearson_corr_from_mu}

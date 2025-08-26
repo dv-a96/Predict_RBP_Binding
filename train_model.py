@@ -76,7 +76,7 @@ from model_utilities import LOSSES, init_checkpoint_and_tensorboard
 def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 50, mlp_layers=[64],
                         loss_idx=1,opt_idx=2, plateauPatience=2, earlyStopPatience=5, model_type='regression',
                         if_sample_wieght=False, alpha=0.5, bins=20, if_clamp_by_percentile = False,
-                        percentile = 99.5, normalization_method = 'quantile', cluster_id = None, remove_rna_dups = False):
+                        percentile = 99.5, normalization_method = 'quantile', cluster_id = None, remove_rna_dups = False, model_version = 1):
     tf.keras.backend.clear_session()
     model_name = model_name.lower()
     
@@ -87,7 +87,8 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
                                                                   if_sample_wieght=if_sample_wieght, bins=bins, alpha=alpha,
                                                                   if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
                                                                   cluster_id=cluster_id,remove_rna_dups=remove_rna_dups,
-                                                                  norm_method=normalization_method)
+                                                                  norm_method=normalization_method,
+                                                                  model_version = model_version)
     # Load and prepare training data
     rnas, rbps, intensities, sample_w_np, edges_np, bin_w_np = prepare_training_data(logger=None,normalization_method=normalization_method,
                                                                                         if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
@@ -140,7 +141,8 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
                                          plateauPatience=plateauPatience, 
                                          earlyStopPatience=earlyStopPatience,
                                          model_type=model_type,
-                                         sigmoid_head=sigmoid_head)
+                                         sigmoid_head=sigmoid_head,
+                                         dict_version= model_version)
         
         factory = PairDatasetFactory(rbps, rnas, intensities, place_on_cpu=True, sample_weight_array=sample_w_np)
         
@@ -254,26 +256,29 @@ if __name__ =="__main__":
     remove_rna_dups = True
     alphas = 0.5
     clamp_by_percentile_options = False
-    if_sample_weights_options = True
-    losses = [1,5]
+    if_sample_weights_options = False
+    losses = 1
     opts = 2
-    norm_methods = ['quantile','meannorm']
-
+    norm_methods = 'quantile'
     cluster = 'all'
-    for norm_method in norm_methods:
-        for loss in losses:
-            if norm_method == "quantile" and loss ==1:
-                continue
-            train_held_out_test("ESM_CNN",loss_idx=loss,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
-                        if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
-                        remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,normalization_method=norm_method)                        
-    disterbutions = ['asymmetric_t','asymmetric_laplace']
-    for model_type in disterbutions:
-        for norm_method in norm_methods:
-            train_held_out_test("ESM_CNN",loss_idx=1,opt_idx=2,if_sample_wieght=if_sample_weights_options,
-                        if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
-                        remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,model_type=model_type,
-                        normalization_method=norm_method)
+    model_version = 7
+    train_held_out_test("ESM_CNN",loss_idx=losses,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
+                            if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
+                            remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,normalization_method=norm_methods,model_version = model_version) 
+    # for norm_method in norm_methods:
+    #     for loss in losses:
+    #         if norm_method == "quantile" and loss ==1:
+    #             continue
+    #         train_held_out_test("ESM_CNN",loss_idx=loss,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
+    #                     if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
+    #                     remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,normalization_method=norm_method)                        
+    # disterbutions = ['asymmetric_t','asymmetric_laplace']
+    # for model_type in disterbutions:
+    #     for norm_method in norm_methods:
+    #         train_held_out_test("ESM_CNN",loss_idx=1,opt_idx=2,if_sample_wieght=if_sample_weights_options,
+    #                     if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
+    #                     remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,model_type=model_type,
+    #                     normalization_method=norm_method)
        
     # for los in losses:
     #     train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=los,opt_idx=opts,if_sample_wieght=if_sample_weights_options,

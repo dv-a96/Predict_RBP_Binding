@@ -9,8 +9,7 @@ import warnings
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler, PowerTransformer
 
 
-# NOTE: 1. remove bad indexes from intensities.
-# NOTE: Add processing description:
+
 """ 1. one hot coding: lengths and padding - zero, uniform"""
 
 def rna_one_hot(rna_df, max_length=41, pad_value=0):
@@ -40,6 +39,7 @@ def rna_one_hot(rna_df, max_length=41, pad_value=0):
 def rbp_one_hot(protein_df, max_length=1000, pad_value=0):
 # 20 standard amino acids
     amino_acids = list("ACDEFGHIKLMNPQRSTVWY")
+    
     aa_to_vec = {aa: np.eye(len(amino_acids))[i] for i, aa in enumerate(amino_acids)}
     encoded_proteins = []
 
@@ -126,7 +126,31 @@ def validate_intensities_values(intensities_df, logger = None):
     return intensities_df
 
 def preprocess_intensities(intensities_df, logger=None , method=None, unit_length=True):
-    method = method.lower()
+    """Preprocess binding intensities DataFrame with various normalization methods.
+
+    Args:
+        intensities_df (data frame): rbp x rna intensities
+        logger (Logger, optional): log errors. Defaults to None.
+        method (str, optional): method to transform. Defaults to None.
+        unit_length (bool, optional): scale to unit length. Defaults to True.
+
+    Raises:
+        ValueError: normalization method must be a string or None.
+        ValueError: box cox requires strictly positive values.
+        ValueError: method unknown.
+
+    Returns:
+        data frame: normalized/transformed intensities
+    """
+    if method is None:
+        return intensities_df
+    elif isinstance(method, str):
+        method = method.lower()
+        if method not in ['log', 'quantile','minmax', 'zscore', 'robust', 'meannorm', 'yeo-johnson']:
+            print(f"Unknown normalization method: {method}\nNo normalization applied!")
+            return intensities_df
+    else:
+        raise ValueError("Normalization method must be a string or None.")
     if 'log' in method:
         intensities_df = log_normalization(intensities_df,logger)
     if 'quantile' in method:
@@ -170,16 +194,11 @@ def preprocess_intensities(intensities_df, logger=None , method=None, unit_lengt
             columns=intensities_df.columns,
             index=intensities_df.index
         )
-
+    elif method == '': pass
     
-
-    else: method =''
-    #logger.info(f"Normalization method: {method}")
     if unit_length:
         intensities_df = unit_scale(intensities_df)
-    #logger.info(f"Unit scaling: {unit_length}")
-    # negatives to zero?
-    # Standarization/ Log transformation....
+    
     return intensities_df
 
 def clamp_by_precentile(df,precentile = 99.5):
@@ -252,13 +271,24 @@ def unit_scale(df):
     return X_normalized
 
 
-def remove_rna_duplicates(rna_df, intensities_df):
+def remove_rna_duplicates(rna_df, intensities_df, treshold = 0.8):
+    """remove rna duplicates based on pearson correlation of their intensities.
+    If pearson correlation is above treshold, replace the duplicates with their mean.
+    Saves the indexes of the duplicates to a csv file.
+    Args:
+        rna_df (data frame): rna sequences
+        intensities_df (data frame): intensities values
+        treshold (float, optional): treshold for pearson corelation. Defaults to 0.8.
+
+    Returns:
+        data frame: intensities with duplicates removed and their mean replaced.
+    """
     dup_groups = rna_df.groupby(list(rna_df.columns)).apply(lambda g: g.index.tolist())
     dup_groups = np.array(dup_groups[dup_groups.apply(len) > 1])
     df = intensities_df.copy().T
     pearsons = [intensities_df[idxs].corr().values[np.triu_indices(len(idxs), k=1)].mean() for idxs in dup_groups]
     pearsons = np.array(pearsons)
-    bigger_than_08 = dup_groups[pearsons > 0.8]
+    bigger_than_08 = dup_groups[pearsons > treshold]
     for cols in bigger_than_08:
         mean_vals = df[cols].mean(axis=1)
         df[cols] = pd.DataFrame({c: mean_vals for c in cols}, index=df.index)
@@ -277,7 +307,13 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
         rbps_sequences (str, optional): Path to the RBPs sequences file. Defaults to 'Data_sets/training_RBPs2.txt'.
         rbps_rnas_binding_intensities (str, optional): Path to the RBPs-RNAs binding intensities file. Defaults to 'Data_sets/training_data2.txt.gz'.
         logger (_type_, optional): Logger instance for logging. Defaults to None.
-        normalization_method (str): How to normalize the intensities - log, quantile
+        normalization_method (str): How to normalize the intensities - log, quantile, minmax, zscore, robust, meannorm, yeo-johnson. Defaults to None.
+        if_clamp_by_percentile (bool, optional): Whether to clamp intensities by a percentile. Defaults to False.
+        percentile (float, optional): Percentile for clamping if enabled. Defaults to 99.5.
+        if_sample_wieght (bool, optional): Whether to create sample weights. Defaults to True.
+        alpha (float, optional): Alpha parameter for sample weights. Defaults to 0.5.
+        bins (int, optional): Number of bins for sample weights. Defaults to 20.
+        if_remove_rna_duplicates (bool, optional): Whether to remove RNA duplicates. Defaults to False.
     Returns:
         Tuple: (rnas, rbps, intensities) where:
             rnas (pd.DataFrame): DataFrame of validated RNA sequences.
@@ -508,23 +544,6 @@ def sample_global_rowwise_by_percentile(intensities: np.ndarray, percentile: flo
 
     return selected_indices, reduced_matrix
 
-# def process_for_cnn(rbps, rnas, intensities, get_all=False):
-#     """Process the rbps and rnas sequences to onehot encodings, and sample data using the internal
-#     sample_global_rowwise_by_percentile function. Sample intenseties over certain precentile.
-
-#     Args:
-#         rbps (pd.Series): protein seqeunces.
-#         rnas (pd.Series): rna sequences.
-#         intensities (nd.array): intensities matrix.
-
-#     Returns:
-#         _type_: _description_
-#     """
-#     #selected_indices, intensities  = sample_global_rowwise_by_percentile(intensities,min_fraction=0.1,get_all=get_all)
-#     rbps = rbp_one_hot(rbps)
-#     #rnas = rnas.iloc[selected_indices]sample_global_rowwise_by_percentile
-#     rnas = rna_one_hot(rnas)
-#     return rbps, rnas, intensities
 
 
 def create_similar_matrix_from_mmseq2(similarity_output = 'Data_sets/similarity_train.tsv',col_value= 'pident'):

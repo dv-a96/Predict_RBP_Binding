@@ -4,24 +4,15 @@ from tensorflow.keras.models import load_model
 from model_utilities import *
 from train_test_utilities import *
 from data_processing import *
-from scipy.stats import pearsonr,spearmanr
+from scipy.stats import pearsonr
 from logger_utils import create_logger
-
+import re
 base_dir = "Models"
 checkpoint_dir = os.path.join(base_dir, "Checkpoints")
 os.makedirs(checkpoint_dir, exist_ok=True)
 EVAL_FOLDER = 'Evaluation'
-BATCH_SIZE = 4096
+BATCH_SIZE = 512
 
-CUSTOM_OBJECTS = {"correlation_coefficient_loss":correlation_coefficient_loss,
-                  "gaussian_nll":gaussian_nll,
-                  "mse_from_mu":mse_from_mu,
-                  "mae_from_mu":mae_from_mu,
-                  "two_piece_laplace_nll":two_piece_laplace_nll,
-                  "two_piece_t_nll":two_piece_t_nll,
-                  "two_piece_normal_nll":two_piece_normal_nll,
-                  "pearson_corr":pearson_corr,
-                  "pearson_corr_from_mu":pearson_corr_from_mu}
 
 def add_preds_to_eval_file(preds, model_name):
     eval_file_path = os.path.join(EVAL_FOLDER, f'summ.csv')
@@ -39,111 +30,209 @@ def evaluate_pident_knn(pident='Data_sets/pident.csv', K =3 , test_indice = None
     pass
 
 
-def evalute_cluster_model(folder, cluster_id,normalization_method='',seed=42):
-    #models = ["/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn_cluster3/esm_cnn_regression_alpha0.5_bins20_clamp99.5_MSE_Adam_2025-08-24_19-26-34.keras"]
+def evalute_cluster_models(folder, cluster_id,seed=42, model_constrain = None):
+    """Givan a folder with models, evalaute them on a specific cluster.
+    Outputs a csv file with predictions for each model and each RBP in the validation and test set.
+    With prefix 'predictions_' and 'labels_' for true intensities.
+    If validation/test sets are bigger than 10 RBPS, only 10 random RBPS are taken.
+    If model_contrain is given, only models with this string in their name are evaluated.
+    Args:
+        folder (str): path
+        cluster_id (str/int): 1-3, 'all'
+        seed (int, optional): seed used to split the orignal data. Defaults to 42.
+        model_constrain (str, optional): if given, only models with this string in their name are evaluated. Defaults to None.
+    """
     models = [os.path.join(folder,f) for f in os.listdir(folder) if f.endswith('.keras')]
-    model_names = [f.rsplit("_", 2)[:-2][0] for f in os.listdir(folder) if f.endswith('.keras')]
-    summary_data = f'Evaluation/summary_cluster_{cluster_id}.csv'
+    if model_constrain:
+        print(f"Evaluating only models with '{model_constrain}' in their name.")
+        models = [m for m in models if model_constrain in m]
+    model_names = [m.split("/")[-1].rsplit("_", 2)[:-2][0] for m in models]
+    summary_path = os.path.join('Evaluation','Clusters',cluster_id)
+    os.makedirs(summary_path, exist_ok=True)
+    summary_data = os.path.join(summary_path, 'predictions_summary.csv')
     if os.path.exists(summary_data):
         # load existing file
         data = pd.read_csv(summary_data)
     else:
         # create empty DataFrame and save it
         data = pd.DataFrame()
-    rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(normalization_method=normalization_method)
+    rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data()
     rnas = rna_one_hot(rnas)
     rbps = get_ESM_prot_vecs()
     rnas = rnas[:,:,:4] # keep only the first 4 bits.
     factory = PairDatasetFactory(rbps,rnas,intensities,place_on_cpu=True)
     cluster_idx = get_clusteres_indices(cluster_id=cluster_id)
     rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(cluster_idx, val_ratio=0.2, test_ratio=0.1, random_state=seed)
-    all_rbp_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
-    rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbp_indices],random_state=seed,val_size=0.2)
-    #true_intensities_ = intensities[rbps_validation_indices]
-    #val_ds = factory.make_train(batch_size=BATCH_SIZE, shuffle=False, prot_ids=rbps_validation_indices,rna_ids=rna_validation_indices)
-    for model_path,model_name in zip(models,model_names):
+    def predict_and_add_to_summary(model_path, model_name, indice_type, indices):
+        """given model path, name, indice type (val/test) and indice, predict and add to summary file.
+
+        Args:
+            model_path (str): path to model
+            model_name (str): model name
+            indice_type (str): val/test
+            indices (list): rbp indices list ints.
+        """
         if model_name in data.columns:
-            continue
-            
+            return
         model = load_model(model_path,custom_objects=CUSTOM_OBJECTS)
-        
-        for test_indice in rbps_validation_indices:
-            single_data = factory.make_train(batch_size=BATCH_SIZE, shuffle=False, prot_ids=[test_indice])
+        for indice in indices:
+            if f'predictions_{indice_type}_{model_name}_{indice}' in data.columns:
+                continue
+            print(f"Predicting for model {model_name}, RBP {indice} ({indice_type})")
+            single_data = factory.make_train(batch_size=BATCH_SIZE, shuffle=False, prot_ids=[indice])
             pred = model.predict(single_data)
             if any(sub in model_name for sub in ['asymmetric_t','gaussian','asymmetric_gaussian','asymmetric_laplace']):
                 pred = pred[:,:1]
             pred = pred.reshape(-1)
-            data[f'predictions_{model_name}_{test_indice}'] = pred
-            if f'labels_{test_indice}' not in data.columns:
-                data[f'labels_{test_indice}'] = intensities[:,test_indice] 
+            data[f'predictions_{indice_type}_{model_name}_{indice}'] = pred
+            if f'labels_{indice}' not in data.columns:
+                data[f'labels_{indice}'] = intensities[:,indice]
+    if len(rbps_validation_indices) > 10:
+        np.random.seed(seed)
+        rbps_validation_indices = np.random.choice(rbps_validation_indices, size=10, replace=False)
+    if len(rbps_test_indices) > 10:
+        np.random.seed(seed)
+        rbps_test_indices = np.random.choice(rbps_test_indices, size=10, replace=False)
+    for model_path, model_name in zip(models, model_names):
+        predict_and_add_to_summary(model_path, model_name, 'val', rbps_validation_indices)
+        predict_and_add_to_summary(model_path, model_name, 'test', rbps_test_indices)
+            
     data.to_csv(summary_data, index=False)
+
+
+
+
+
+def evaluate_cluster_predictions(cluster_id, norm_method, model_constrain = None, only_ensmeble = False):
+    data_path = os.path.join('Evaluation','Clusters',str(cluster_id),'predictions_summary.csv')
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"No predictions summary found for cluster {cluster_id}. Please run evalute_cluster_models first.")
+    data = pd.read_csv(data_path)
+    if norm_method not in ['quantile','meannorm','robust','zscore','quantile_meannorm']:
+        raise ValueError(f"Unknown normalization method {norm_method}. Choose from ['quantile','meannorm','robust','zscore','quantile_meannorm']")
+    columns_with_norm = [col for col in data.columns if norm_method in col or col.startswith('labels_')]
+    # Extarct val and test indices from columns names
+    val_pattern = re.compile(r'predictions_(val)_(.+?)_(\d+)$')
+    validation_indices = [val_pattern.match(col).group(3) for col in columns_with_norm if val_pattern.match(col)]
+    test_pattern = re.compile(r'predictions_(test)_(.+?)_(\d+)$')
+    test_indices = [test_pattern.match(col).group(3) for col in columns_with_norm if test_pattern.match(col)]
+    validation_indices = list(set(validation_indices))
+    test_indices = list(set(test_indices))
+    # Get model names
+    model_pattern = re.compile(r'predictions_(val|test)_(.+?)_(\d+)$')
+    model_names = list(set([model_pattern.match(col).group(2) for col in columns_with_norm if model_pattern.match(col)]))
+    data_path = os.path.join('Evaluation','Clusters',str(cluster_id),f'{norm_method}')
+    os.makedirs(data_path, exist_ok=True)
+    if model_constrain:
+        model_names = [m for m in model_names if model_constrain in m]
+        data_path = os.path.join(data_path, model_constrain)
+        os.makedirs(data_path, exist_ok=True)
+    # Get rna train, val, test indices
+    ##########
+    indices_data = pd.read_csv(os.path.join('Data_sets','Index_sets',f'{norm_method}_rnas_indices.csv'))
+    rna_validation_indices = indices_data[f'cluster{cluster_id}_validation'].dropna()
+    rna_test_indices = indices_data[f'cluster{cluster_id}_test'].dropna()
     
-def evaluate_cluster_3():
-    data = pd.read_csv("Evaluation/summary_cluster_3.csv")
-    norm_methods = ['quantile','meannorm','robust','zscore','quantile_meannorm']
-    cluster_idx = get_clusteres_indices(cluster_id=3)
-    rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(cluster_idx, val_ratio=0.2, test_ratio=0.1, random_state=42)
-    all_rbp_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
-    norms_indices = {}
-    for norm in norm_methods:
-        rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(normalization_method=norm)
-        rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbp_indices],random_state=42,val_size=0.2) 
-        norms_indices[norm] = (rna_train_indices, rna_validation_indices, rna_test_indices)
-    with open("Evaluation/summary_cluster_3_corr.txt","w") as f:
-        for t_indice in rbps_validation_indices:
-            t_cols = [col for col in data.columns if str(t_indice) in col]
-            for norm in norm_methods:
-                norm_cols = [col for col in t_cols if norm in col] + [f'labels_{t_indice}']
-                f.write(f"RBP {t_indice} norm {norm}\n")
-                rna_train_indices, rna_validation_indices, rna_test_indices = norms_indices[norm]
-                f.write(f"Validation Pearson r: {data.iloc[rna_validation_indices][norm_cols].corr()['labels_'+str(t_indice)]}\n")
-                f.write(f"Train Pearson r: {data.iloc[rna_train_indices][norm_cols].corr()['labels_'+str(t_indice)]}\n")
-                f.write(f"Test Pearson r: {data.iloc[rna_test_indices][norm_cols].corr()['labels_'+str(t_indice)]}\n")
-                f.write("----\n")
+    rna_validation_data = data.iloc[rna_validation_indices]
+    rna_test_data = data.iloc[rna_test_indices]
+    validation_test_indices = rna_validation_indices.tolist() + rna_test_indices.tolist()
+    rna_val_test_data = data.iloc[validation_test_indices]
+    ##########
+    # For every model, calculate pearson r for val and test sets and their mean.
+    models_val_corrs = {}
+    models_test_corrs = {}
+    models_test_val_test_indices = {} # evaluate the test set on the validation and test indices
+    models_test_all_indices = {} # evaluate the test set on all indices
+    
+    def evaluate_cluster_predictions_as_ensemble(test_indices, models):
+        # pick the mean predictions of all model combinations and evaluate their pearson r corelation.
+        with open(os.path.join(data_path,'ensemble_dict.txt'),'w') as f:
+            for i,model in enumerate(models):
+                f.write(f"Model {i}: {model}\n")
+        num_models = len(models)
+        # Enumrate models
+        from itertools import combinations
+        
+        for k in range(2, num_models+1):
+            
+            df = pd.DataFrame(index=test_indices + ['mean'])
+            for combo in combinations(range(num_models), k):
+                combo_models = [models[i] for i in combo]
+                for indice in test_indices:
+                    combo_pred_cols = [f'predictions_test_{model}_{indice}' for model in combo_models if f'predictions_test_{model}_{indice}' in data.columns]
+                    if not combo_pred_cols:
+                        continue
+                    ensemble_preds = data[combo_pred_cols].mean(axis=1)
+                    true_labels = data[f'labels_{indice}'].values
+                    ensemble_corr = pearsonr(ensemble_preds, true_labels)[0]
+                    df.loc[indice, f'Ensemble_{combo}'] = ensemble_corr
+                df.loc['mean', f'Ensemble_{combo}'] = df.loc[test_indices, f'Ensemble_{combo}'].mean()
+            df_path = os.path.join(data_path,f'ensemble_size_{k}.csv')
+            df.to_csv(df_path)
+    evaluate_cluster_predictions_as_ensemble(test_indices, model_names)
+    if only_ensmeble:
+        return
+    for model in model_names:
+        val_cols = [col for col in columns_with_norm if f'predictions_val_{model}_' in col] + [f'labels_{val_indice}' for val_indice in validation_indices]
+        test_cols = [col for col in columns_with_norm if f'predictions_test_{model}_' in col] + [f'labels_{test_indice}' for test_indice in test_indices]
+        val_corr = rna_validation_data[val_cols].corr().loc[[f'labels_{idx}' for idx in validation_indices],[f'predictions_val_{model}_{idx}' for idx in validation_indices]].values.diagonal()
+        test_corr = rna_test_data[test_cols].corr().loc[[f'labels_{idx}' for idx in test_indices],[f'predictions_test_{model}_{idx}' for idx in test_indices]].values.diagonal()
+        val_test_corr = rna_val_test_data[test_cols].corr().loc[[f'labels_{idx}' for idx in test_indices],[f'predictions_test_{model}_{idx}' for idx in test_indices]].values.diagonal()
+        all_test_corr = data[test_cols].corr().loc[[f'labels_{idx}' for idx in test_indices],[f'predictions_test_{model}_{idx}' for idx in test_indices]].values.diagonal()
+        models_val_corrs[model] = np.append(val_corr, np.mean(val_corr))
+        models_test_corrs[model] = np.append(test_corr, np.mean(test_corr))
+        models_test_val_test_indices[model] = np.append(val_test_corr, np.mean(val_test_corr))
+        models_test_all_indices[model] = np.append(all_test_corr, np.mean(all_test_corr))
+    val_summary = pd.DataFrame(models_val_corrs, index = validation_indices + ['mean'])
+    test_summary = pd.DataFrame(models_test_corrs, index = test_indices + ['mean'])
+    test_val_summary = pd.DataFrame(models_test_val_test_indices, index = test_indices + ['mean'])
+    all_test_summary = pd.DataFrame(models_test_all_indices, index = test_indices + ['mean'])
+    
+    val_summary.to_csv(os.path.join(data_path,'validation_summary.csv'))
+    test_summary.to_csv(os.path.join(data_path,'test_summary.csv'))
+    test_val_summary.to_csv(os.path.join(data_path,'test_and_validation_summary.csv'))
+    all_test_summary.to_csv(os.path.join(data_path,'all_test_summary.csv'))
+    
+    print(f"Summary saved to {os.path.join('Evaluation','Clusters',str(cluster_id),norm_method,'validation|test_summary.csv')}")
+        
+
+
+    
+def baseline_knn_model(n_neighbors=5, similarity_matrix=None, intensities_df=None, index_to_compare=None):
+    """Take the average of the n most similar RBPS for a given rbp and average their rna predictions.
+
+    Args:
+        n_neighbors (int, optional): _description_. Defaults to 5.
+        similarity_matrix (_type_, optional): _description_. Defaults to None.
+        intensities_df (_type_, optional): _description_. Defaults to None.
+    """
+
                
 
 def create_indices():
+    data_path = 'Data_sets/Index_sets'
+    os.makedirs(data_path, exist_ok=True)
+    norm_methods = ['quantile','meannorm']
+    for norm_method in norm_methods:
+        rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(normalization_method=norm_method)
+        rbp_splits = {}
+        rna_splits = {}
+        for id in [1,2,3,'all']:
+            cluster_idx = get_clusteres_indices(cluster_id=id)
+            rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(cluster_idx, val_ratio=0.2, test_ratio=0.1, random_state=42)
+            rbp_splits[f"cluster{id}_train"] = pd.Series(rbps_train_indices).astype(int)
+            rbp_splits[f"cluster{id}_validation"] = pd.Series(rbps_validation_indices).astype(int)
+            rbp_splits[f"cluster{id}_test"] = pd.Series(rbps_test_indices).astype(int)
+            all_rbp_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
+            rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbp_indices],random_state=42,val_size=0.2)
+            rna_splits[f"cluster{id}_train"] = pd.Series(rna_train_indices).astype(int)
+            rna_splits[f"cluster{id}_validation"] = pd.Series(rna_validation_indices).astype(int)
+            rna_splits[f"cluster{id}_test"] = pd.Series(rna_test_indices).astype(int)
+        df_rbps = pd.DataFrame(rbp_splits)
+        df_rnas = pd.DataFrame(rna_splits)
+        df_rbps.to_csv(os.path.join(data_path,f'{norm_method}_rbps_indices.csv'), index=False)
+        df_rnas.to_csv(os.path.join(data_path,f'{norm_method}_rnas_indices.csv'), index=False)
 
-    rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(normalization_method='quantile')
-    rbp_splits = {}
-    rna_splits = {}
-    for id in [1,2,3]:
-        cluster_idx = get_clusteres_indices(cluster_id=id)
-        rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(cluster_idx, val_ratio=0.2, test_ratio=0.1, random_state=42)
-        rbp_splits[f"cluster{id}_train"] = pd.Series(rbps_train_indices)
-        rbp_splits[f"cluster{id}_validation"] = pd.Series(rbps_validation_indices)
-        rbp_splits[f"cluster{id}_test"] = pd.Series(rbps_test_indices)
-        all_rbp_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
-        rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbp_indices],random_state=42,val_size=0.2)
-        rna_splits[f"cluster{id}_train"] = pd.Series(rna_train_indices)
-        rna_splits[f"cluster{id}_validation"] = pd.Series(rna_validation_indices)
-        rna_splits[f"cluster{id}_test"] = pd.Series(rna_test_indices)
-
-def compare_models_in_folder(folder=".."):
-    
-    models = [f for f in os.listdir(folder) if f.endswith('.keras')]
-    #models = ['/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn/esm_cnn_regression_alpha1_bins20_MSE_Adam_2025-08-24_11-22-58.keras']
-    #model_names = [f.rsplit("_", 2)[:-2][0]for f in models]
-    summary_data = 'Evaluation/summ.csv'
-    data =pd.read_csv(summary_data)
-    rnas, rbps, intensities,sample_w, edges, bin_w = prepare_training_data(logger=None,normalization_method='quantile')
-    rnas = rna_one_hot(rnas)
-    rbps = get_ESM_prot_vecs()
-    rnas = rnas[:,:,:4] # keep only the first 4 bits.
-    rbp_indice = rbps[[132]]  
-    rbp_indice = rbp_indice[None,:]
-    rbp_indice = rbp_indice.repeat(rnas.shape[0],axis=0)
-    rbp_indice=rbp_indice.reshape(rbp_indice.shape[0],rbp_indice.shape[2])
-    for model_name,model_path in zip(models,models):
-        if model_name in data.columns:
-            continue
-        else:
-            model = load_model(os.path.join(folder,model_path),custom_objects=CUSTOM_OBJECTS)
-            #model = load_model(model_path,custom_objects=CUSTOM_OBJECTS)
-            preds = model.predict([rbp_indice,rnas],batch_size=4096)
-            preds = preds[:,:1]
-            data[model_name.split("/")[-1]] = preds.reshape(-1)
-    data.to_csv(summary_data, index=False)
 
 
 
@@ -219,14 +308,9 @@ def pearson_stats(A, B):
 
 def evaluate_model(model_name, exclude_num = 20, seed = 42, batch_size = 2048, mlp_layers=[64]):
     # Init and get data
-    logger = create_logger(f'predict_{model_name}')
-    rnas, rbps, intensities = prepare_training_data(logger=logger,normalization_method='quantile')
+    rnas, rbps, intensities = prepare_training_data(normalization_method='quantile')
     rbps_number = len(rbps)
-    if exclude_num:
-        test_indices = exclude_indices(samples_num=rbps_number, exclude_num=exclude_num, random_state=seed)
-        if len(test_indices) == 0:
-            raise ValueError('Error excluding testing indices')
-        train_indices = list(set(range(rbps_number)).difference(set(test_indices)))
+    
 
      # load model
     global checkpoint_dir
@@ -318,7 +402,8 @@ def evaluate_model(model_name, exclude_num = 20, seed = 42, batch_size = 2048, m
     # print(correlations)
 #compare_models_in_folder("/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_loss_bin")
 #evaluate_model('Only_RNA_sec',exclude_num=199)
-# evalute_cluster_model('/home/dsi/lubosha/Predict_RBP_Binding/Models/Checkpoints/esm_cnn_cluster_3',
-#                        cluster_id=3)
 
-evaluate_cluster_3()
+evalute_cluster_models('Models/Checkpoints/esm_cnn_cluster_all',
+                       cluster_id='all',model_constrain='quantile')
+evaluate_cluster_predictions('all', norm_method='quantile',model_constrain='quantile_MSE_Adam',only_ensmeble=True)
+
