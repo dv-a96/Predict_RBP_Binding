@@ -11,28 +11,46 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler, Po
 
 
 """ 1. one hot coding: lengths and padding - zero, uniform"""
-
-def rna_one_hot(rna_df, max_length=41, pad_value=0):
+def rna_one_hot(rna_df, max_length=41, pad_value=0, vector_length=20):
     bases = ['A', 'C', 'G', 'U']
-    vector_length = 20  # padding length
-    base_to_vec = {}
+    base_to_idx = {b: i for i, b in enumerate(bases)}
 
-    for i, base in enumerate(bases):
-        vec = np.full(vector_length, pad_value)
-        vec[i] = 1  # one-hot position for A/C/G/U at index 0–3
-        base_to_vec[base] = vec
+    # Identity matrix: shape (4, vector_length), padded with pad_value
+    one_hot = np.full((4, vector_length), pad_value, dtype=np.int8)
+    for i in range(4):
+        one_hot[i, i] = 1
 
-    encoded_rnas = []
+    n = len(rna_df)
+    encoded = np.full((n, max_length, vector_length), pad_value, dtype=np.int8)
 
-    for rna in rna_df[0]:
-        one_hot = [base_to_vec.get(base, np.full(vector_length, pad_value)) for base in rna]
-        if len(one_hot) < max_length:
-            one_hot += [np.full(vector_length, pad_value)] * (max_length - len(one_hot))
-        else:
-            one_hot = one_hot[:max_length]
-        encoded_rnas.append(np.array(one_hot))
+    for i, rna in enumerate(rna_df[0]):
+        idxs = [base_to_idx.get(b, -1) for b in rna[:max_length]]
+        for j, idx in enumerate(idxs):
+            if idx >= 0:
+                encoded[i, j] = one_hot[idx]
 
-    return np.array(encoded_rnas).transpose(0, 1, 2).astype(np.int8)
+    return encoded
+# def rna_one_hot(rna_df, max_length=41, pad_value=0):
+#     bases = ['A', 'C', 'G', 'U']
+#     vector_length = 20  # padding length
+#     base_to_vec = {}
+
+#     for i, base in enumerate(bases):
+#         vec = np.full(vector_length, pad_value)
+#         vec[i] = 1  # one-hot position for A/C/G/U at index 0–3
+#         base_to_vec[base] = vec
+
+#     encoded_rnas = []
+
+#     for rna in rna_df[0]:
+#         one_hot = [base_to_vec.get(base, np.full(vector_length, pad_value)) for base in rna]
+#         if len(one_hot) < max_length:
+#             one_hot += [np.full(vector_length, pad_value)] * (max_length - len(one_hot))
+#         else:
+#             one_hot = one_hot[:max_length]
+#         encoded_rnas.append(np.array(one_hot))
+
+#     return np.array(encoded_rnas).transpose(0, 1, 2).astype(np.int8)
 
 
 
@@ -72,7 +90,7 @@ def convert_txt_to_fast(input_file):
         for i, line in enumerate(f_in):
             f_out.write(f">seq{i+1}\n{line.strip()}\n")
 
-def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
+def validate_rna_sequences(df, min_length = 0, max_length= 41, logger =None):
     """
     Validates RNA sequences for correct nucleotide content and length range.
     Assumes the DataFrame has only one column and converts sequences to uppercase.
@@ -93,7 +111,7 @@ def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
     df[col] = df[col].astype(str).str.upper()
 
     # Define RNA pattern
-    rna_pattern = re.compile(r'^[ACGTU]+$')
+    rna_pattern = re.compile(r'^[ACGU]+$')
 
     rna_mask = df[col].apply(lambda seq: bool(rna_pattern.fullmatch(seq)))
     length_mask = df[col].apply(lambda seq: min_length <= len(seq) <= max_length)
@@ -108,12 +126,16 @@ def validate_rna_sequences(df, min_length = 0, max_length= 1e5, logger =None):
         # logger.warning(f"{len(invalid_rna)} sequences have invalid RNA characters we removed them from the Data.")
         # logger.debug(f"Invalid RNA sequences: {invalid_rna[col].tolist()[:5]}")  # preview first 5
         # logger.debug(f"Indices: {invalid_rna.index}")
+        print(f"{len(invalid_rna)} sequences have invalid RNA characters we removed them from the Data.")
+        print(f"Invalid RNA sequences preview first 5: {invalid_rna[col].tolist()[:5]}")  # preview first 5
+        print(f"Indices: {invalid_rna.index}")
         
         bad_indexes = invalid_rna.index
     if not invalid_length.empty:
         # logger.warning(f"{len(invalid_length)} sequences are out of length bounds. By defualt they are kept!")
         # logger.debug(f"Invalid length sequences: {invalid_length[col].tolist()[:5]}")  # preview
         # logger.debug(f"Indices: {invalid_length.index}")
+        print(f"{len(invalid_length)} sequences are out of length = {max_length} bounds. By defualt they are kept!\nThese sequecne will be turncated in the onehot encodings")
         pass
     return rnas, bad_indexes
 
@@ -299,7 +321,7 @@ def remove_rna_duplicates(rna_df, intensities_df, treshold = 0.8):
 def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_sequences = 'Data_sets/training_RBPs2.txt',
                           rbps_rnas_binding_intensities = 'Data_sets/training_data2_deduped.csv', logger=None ,
                           normalization_method = None, if_clamp_by_percentile = False, percentile = 99.5,
-                          if_sample_wieght=True, alpha=0.5, bins=20, if_remove_rna_duplicates = False):
+                          if_sample_wieght=True, alpha=0.5, bins=20, if_remove_rna_duplicates = False, on_baseline=False):
     """Prepare training/testing data for the model.
 
     Args:
@@ -351,7 +373,38 @@ def prepare_training_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_se
     intensities = np.array(intensities)
     return rnas,rbps,intensities, sample_w, edges, bin_w
 
-
+def prepare_baseline_data(rna_sequences = 'Data_sets/training_seqs.txt', rbps_sequences = 'Data_sets/training_RBPs2.txt',
+                          rbps_rnas_binding_intensities = 'Data_sets/training_data2_deduped.csv', logger=None ,
+                          normalization_method = None, if_clamp_by_percentile = False, percentile = 99.5,
+                          if_sample_wieght=True, alpha=0.5, bins=20, if_remove_rna_duplicates = False,test=False):
+    rbps = pd.read_csv(rbps_sequences,header=None)
+    rnas = pd.read_csv(rna_sequences,header=None)
+    rnas, rna_bad_indexes = validate_rna_sequences(rnas,29,41, logger)
+    rbps, rbps_bad_indexes = validate_rbps_sequences(rbps, logger)
+    if if_remove_rna_duplicates:
+        rbps_rnas_binding_intensities= "Data_sets/training_data2_deduped_rbp_rna.csv"
+        rna_bad_indexes_ = pd.read_csv("Data_sets/rna_duplicate_indexes.csv").values.flatten()
+        if rna_bad_indexes is not None:
+            rna_bad_indexes = np.unique(np.concatenate([rna_bad_indexes, rna_bad_indexes_]))
+        else: rna_bad_indexes = rna_bad_indexes_
+    if test:
+        intensities = pd.read_csv("Data_sets/training_data2.txt.gz",header=None,sep="\t")
+    else:
+        intensities = pd.read_csv(rbps_rnas_binding_intensities)
+    if rna_bad_indexes is not None: # remove them from intensities accordingly
+        intensities = intensities.drop(index=rna_bad_indexes, errors='ignore')
+        rnas = rnas.drop(index=rna_bad_indexes, errors='ignore')
+    
+    test_rnas = rnas.loc[100000:]
+    test_intensities = intensities.loc[100000:]
+    rnas = rnas.loc[:99999].reset_index(drop=True)
+    intensities = intensities.loc[:99999].reset_index(drop=True)
+    intensities = preprocess_intensities(intensities, logger,method=normalization_method,unit_length=False)
+    sample_w, edges, bin_w = None, None, None
+    if if_sample_wieght:
+        sample_w, edges, bin_w = create_wieghts_per_bin(intensities.values, n_bins=bins, alpha=alpha)
+    intensities = np.array(intensities)
+    return rnas,rbps,intensities, sample_w, edges, bin_w, test_rnas, test_intensities
 def avg_dup_per_cluster_preserve_order(idx_dup, cluster_file, data_file):
     """
     For each duplicate group:

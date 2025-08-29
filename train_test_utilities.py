@@ -6,6 +6,13 @@ import tensorflow as tf
 from sklearn.model_selection import StratifiedShuffleSplit
 import pandas as pd
 
+
+def baseline_test():
+    """
+    Remove the last 10 RBPs and last 20678 RNAs for testing."""
+    rbps_test = [i for i in range(190,200)]
+    rnas_duplicates = pd.read_csv("Data_sets/rna_duplicate_indexes.csv")
+
 def get_clusteres_indices(cluster_file = 'Data_sets/wass_no_dup_cluster.csv', cluster_id = None):
     """
     Reads a CSV file containing cluster information and returns the indices of samples belonging to a specified cluster.
@@ -32,7 +39,7 @@ def get_clusteres_indices(cluster_file = 'Data_sets/wass_no_dup_cluster.csv', cl
         filtered_df = clusters_df
     return np.array(filtered_df.index)
 
-def split_rbs_to_train_val_test(rbps_indices, val_ratio=0.2, test_ratio=0.1, random_state=42):
+def split_rbs_to_train_val_test(rbps_indices, val_ratio=0.2, test_ratio=0.1, random_state=42 ):
     """
     Splits the given indices into training, validation, and test sets based on specified ratios.
 
@@ -54,8 +61,8 @@ def split_rbs_to_train_val_test(rbps_indices, val_ratio=0.2, test_ratio=0.1, ran
         rng = np.random.default_rng(random_state)
         
         total_samples = len(rbps_indices)
-        n_val = max(2, int(val_ratio * total_samples))
-        n_test = max(1, int(test_ratio * total_samples))
+        n_val = max(2, int(val_ratio * total_samples)) if val_ratio > 0 else 0
+        n_test = max(1, int(test_ratio * total_samples)) if test_ratio > 0 else 0
         val_indices = np.random.choice(rbps_indices, size=n_val, replace=False)
         remaining = np.setdiff1d(rbps_indices, val_indices)
         test_indices = np.random.choice(remaining, size=n_test, replace=False)
@@ -99,16 +106,31 @@ def stratified_split_multi(
     # 2) Bin the composite score for stratification
     bins = pd.qcut(pd.Series(score), q=n_bins, duplicates="drop")
     # 3) Test split
-    sss_test = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
     idx_all = np.arange(N)
-    trainval_idx, test_idx = next(sss_test.split(idx_all, bins))
-    # 4) Val split from remaining so overall is val_size
-    rel_val = val_size / (1 - test_size)
-    bins_trainval = bins.iloc[trainval_idx]
-    sss_val = StratifiedShuffleSplit(n_splits=1, test_size=rel_val, random_state=random_state)
-    train_rel, val_rel = next(sss_val.split(trainval_idx, bins_trainval))
-    train_idx, val_idx = trainval_idx[train_rel], trainval_idx[val_rel]
-    return train_idx, val_idx, test_idx
+    if test_size > 0:
+        # 1) Hold-out test
+        sss_test = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+        trainval_mask, test_mask = next(sss_test.split(idx_all, bins))
+        trainval_idx = idx_all[trainval_mask]
+        test_idx     = idx_all[test_mask]
+
+        # 2) From remaining, split val so that overall val fraction is val_size
+        rel_val = val_size / (1 - test_size)  # fraction of the remainder
+        sss_val = StratifiedShuffleSplit(n_splits=1, test_size=rel_val, random_state=random_state)
+        bins_trainval = bins.iloc[trainval_idx]
+        train_mask, val_mask = next(sss_val.split(trainval_idx, bins_trainval))
+
+        train_idx = trainval_idx[train_mask]
+        val_idx   = trainval_idx[val_mask]
+        return train_idx, val_idx, test_idx
+    else:
+        # Only train/val
+        sss_val = StratifiedShuffleSplit(n_splits=1, test_size=val_size, random_state=random_state)
+        train_mask, val_mask = next(sss_val.split(idx_all, bins))
+        train_idx = idx_all[train_mask]
+        val_idx   = idx_all[val_mask]
+        return train_idx, val_idx, None
+    
 
 
 def split_k_fold(samples_num, k, excluded_indices=None, random_state=None):
@@ -179,6 +201,7 @@ class PairDatasetFactory:
     """
     def __init__(self, rbps_np, rnas_np, intensities_np=None, place_on_cpu=True, 
                  sample_weight_array = None):
+        self.y = None
         self.use_weights = False
         if sample_weight_array is not None:
             if sample_weight_array.shape != intensities_np.shape:
@@ -214,10 +237,11 @@ class PairDatasetFactory:
     def _map_pair_x_only(self, p, r, return_ids: bool):
         rbp_vec = tf.gather(self.rbps, p)
         rna_oh  = tf.gather(self.rnas, r)
-        features = (rbp_vec, rna_oh)
         if return_ids:
-            return (features), (p, r)
-        return features
+            return (rbp_vec, rna_oh), (p, r)
+
+        return (rbp_vec, rna_oh),0  
+        
     # returns (x, y)
     def _map_pair_xy(self, p, r, return_ids: bool):
         rbp_vec = tf.gather(self.rbps, p)

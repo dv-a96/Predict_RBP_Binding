@@ -2,6 +2,8 @@ from tensorflow.keras import backend as K
 import tensorflow as tf
 import os
 import math
+import re
+from pathlib import Path
 
 from datetime import datetime
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -53,16 +55,35 @@ def create_model_name(model_name, mlp_layers, model_type='regression'):
     model_name = model_name.lower() + '_' + model_type
     full_name =  model_name.lower() + "_".join(str(x) for x in mlp_layers)
     return full_name
-
+def add_prot_index_to_model_name(check_point_path,tesnor_board_path,prot_index):
+    # find timestamp in the path
+    TIMESTAMP = re.compile(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}')
+    def insert_before_timestamp(path_str: str, to_insert: str) -> str:
+        p = Path(path_str)
+        name = p.name
+        m = TIMESTAMP.search(name)
+        if not m:
+            raise ValueError("No YYYY-MM-DD_HH-MM-SS timestamp found in filename.")
+        i = m.start()
+        new_name = name[:i] + to_insert + name[i:]
+        return str(p.with_name(new_name))
+    check_point_path = insert_before_timestamp(check_point_path, f"prot{prot_index}_")
+    tesnor_board_path = insert_before_timestamp(tesnor_board_path, f"prot{prot_index}_")
+    return check_point_path, tesnor_board_path
 def init_checkpoint_and_tensorboard(model_name,loss_key=None , opt_idx = None, model_type='regression', mlp_layers = [],
                                     if_sample_wieght=False, alpha=None, bins=None, if_clamp_by_percentile = False,
                         percentile = None,cluster_id = None,remove_rna_dups = False,norm_method = None,
-                        model_version = None):
+                        model_version = None, on_baseline = False,per_prot=False):
     """Initialize checkpoint and TensorBoard directories with model name and timestamp."""
     # Optional: add timestamp and model name to distinguish runs
     global checkpoint_dir, tensorboard_dir
     if cluster_id is not None:
         model_name_ = f"{model_name}_cluster_{cluster_id}"
+    elif on_baseline:
+        if per_prot:
+            model_name_ = f"{model_name}_Baseline_perProt"
+        else:
+            model_name_ = f"{model_name}_Baseline"
     else: model_name_ = model_name
     checkpoint_dir_ = os.path.join(checkpoint_dir, f"{model_name_}")
     tensorboard_dir_ = os.path.join(tensorboard_dir, f"{model_name_}")

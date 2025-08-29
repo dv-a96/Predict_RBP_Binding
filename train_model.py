@@ -8,75 +8,14 @@ from models import *
 import time
 
 
-from logger_utils import create_logger
 from model_utilities import LOSSES, init_checkpoint_and_tensorboard
-# def train_k_fold(model_name, K = 10, exclude_num = None, seed = 42, batch_size = 512, epochsNum = 1):
-#     logger = create_logger(f'train_{model_name}_{K}-fold')
-#     logger.info(f"Starting training for model: {model_name} with training type: {K} - fold")
-#     # Load and prepare training data
-#     rnas, rbps, intensities = prepare_training_data(logger=logger)
-#     if model_name == "Combined_CNN":
-#         rbps,rnas,intensities= process_for_cnn(rbps,rnas,intensities)
-#         combined_cnn, call_backs = Combined_CNN(input_shape=(rbps.shape[1]+rnas.shape[1],20))
-
-    
-#             ### CNN:
-#     rbps_number = len(rbps)
-#     if exclude_num:
-#         testing_indices = exclude_indices(samples_num=rbps_number, exclude_num=exclude_num, random_state=seed)
-#     else: testing_indices = None
-#     # Split data into training and testing sets
-
-#     train_folds, test_folds = split_k_fold(samples_num=rbps_number, k=K, excluded_indices=testing_indices, random_state=seed)
-#     logger.info(f"Data split into {K} folds for K-Fold cross-validation.")
-#     for fold_idx, (train_indices, test_indices) in enumerate(zip(train_folds, test_folds)):
-#         logger.info(f"Training fold {fold_idx + 1}/{K} with {len(train_indices)} training samples and {len(test_indices)} testing samples.")
-#         fold_rbps_train = rbps[train_indices]
-#         fold_rbps_validation = rbps[test_indices]
-#         ## column protein, rows rna binding values
-#         intensities_fold_train = intensities[:,train_indices]
-#         intensities_fold_validation = intensities[:,test_indices]
-        
-#         ### CNN:
-#         if model_name == 'Combined_CNN':
-#             train_ds = RBP_RNA_Combined_Dataset(fold_rbps_train, rnas, intensities=intensities_fold_train)
-#             train_ds = train_ds.shuffle(10000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
-#             val_ds = RBP_RNA_Combined_Dataset(fold_rbps_validation, rnas, intensities=intensities_fold_validation)
-#             val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-#             steps_per_epoch = fold_rbps_train.shape[0]*rnas.shape[0] // batch_size
-#             val_steps = fold_rbps_validation.shape[0] * rnas.shape[0]  // batch_size
-#             combined_cnn.fit(train_ds,validation_data=val_ds,epochs=epochsNum,callbacks=call_backs,steps_per_epoch=steps_per_epoch,validation_steps=val_steps)
-#         ### ProbeRating:
-#         if False:
-#             YTY=np.dot(intensities_fold_train.T, intensities_fold_train)    
-#             YTD=np.dot(intensities_fold_train.T, rnas)  
-#             # make input to nn
-#             rnaNum=YTD.shape[0]
-#             protTrainIN=fold_rbps_train.repeat(rnaNum, axis=0)
-#             protTestIN=fold_rbps_validation.repeat(rnaNum, axis=0)
-#             similarityTrainIN=YTY.reshape((-1,1), order='F') 
-#             protTrainNum=fold_rbps_train.shape[0]
-#             protTestNum=fold_rbps_validation.shape[0]
-#             rnaTrainIN=np.tile(YTD,(protTrainNum,1))  
-#             rnaTestIN=np.tile(YTD,(protTestNum,1))
 
 
-#             predictedSimilarity=network1.predict([protTestIN, rnaTestIN])
-#             predictedSimilarity=predictedSimilarity.reshape((rnaNum,-1),order='F')  
-#             # option1: Weighted sum reconstruction
-#             intensityPred=np.dot(intensityTrain, predictedSimilarity)
-#             # option2:  Moore-Penrose pseudo inverse reconstruction:
-#             intensityPred1=np.dot(np.linalg.pinv(intensityTrain.T), predictedSimilarity)
-
-#             network1, callbacksList = probe_rating()
-#             history=network1.fit([protTrainIN, rnaTrainIN], similarityTrainIN, batch_size=10, epochs=30, verbose=2, callbacks=callbacksList, validation_split=0.1, shuffle=True)
-#         # Train model on this fold
-#         pass
-    
 def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 512, epochsNum = 50, mlp_layers=[64],
                         loss_idx=1,opt_idx=2, plateauPatience=2, earlyStopPatience=5, model_type='regression',
                         if_sample_wieght=False, alpha=0.5, bins=20, if_clamp_by_percentile = False,
-                        percentile = 99.5, normalization_method = 'quantile', cluster_id = None, remove_rna_dups = False, model_version = 1):
+                        percentile = 99.5, normalization_method = 'quantile', cluster_id = None, 
+                        remove_rna_dups = False, model_version = 1, on_baseline = False, per_prot=False):
     tf.keras.backend.clear_session()
     model_name = model_name.lower()
     
@@ -88,25 +27,37 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
                                                                   if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
                                                                   cluster_id=cluster_id,remove_rna_dups=remove_rna_dups,
                                                                   norm_method=normalization_method,
-                                                                  model_version = model_version)
+                                                                  model_version = model_version,on_baseline=on_baseline,
+                                                                  per_prot=per_prot)
     # Load and prepare training data
-    rnas, rbps, intensities, sample_w_np, edges_np, bin_w_np = prepare_training_data(logger=None,normalization_method=normalization_method,
+    if on_baseline:
+        rnas, rbps, intensities, sample_w_np, edges_np, bin_w_np, test_rnas, test_intensities = prepare_baseline_data(logger=None,normalization_method=normalization_method,
+                                                                                        if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
+                                                                                        if_sample_wieght=if_sample_wieght, alpha=alpha, bins=bins,
+                                                                                        if_remove_rna_duplicates=remove_rna_dups)        
+    else:
+        rnas, rbps, intensities, sample_w_np, edges_np, bin_w_np = prepare_training_data(logger=None,normalization_method=normalization_method,
                                                                                         if_clamp_by_percentile=if_clamp_by_percentile,percentile=percentile,
                                                                                         if_sample_wieght=if_sample_wieght, alpha=alpha, bins=bins,
                                                                                         if_remove_rna_duplicates=remove_rna_dups)
-    
+    if on_baseline and cluster_id is not None:
+        raise ValueError("Cannot use both on_baseline and cluster_id options together.")
+    if on_baseline:
+        
+        cluster_idx = get_clusteres_indices(cluster_id='all')
+        all_rbps_indices = np.concatenate([val for val in cluster_idx.values()])
+        rbps_test_indices = all_rbps_indices[all_rbps_indices > 189]
+        remaining_indices = all_rbps_indices[all_rbps_indices <= 189]
 
-    rbps_number = len(rbps)
-    if cluster_id is not None:
+        rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(remaining_indices, val_ratio=0.1, test_ratio=0, random_state=seed)
+        rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbps_indices],random_state=seed,val_size=0.15,test_size=0)
+    elif cluster_id is not None:
         cluster_idx = get_clusteres_indices(cluster_id=cluster_id)
         rbps_train_indices, rbps_validation_indices, rbps_test_indices = split_rbs_to_train_val_test(cluster_idx, val_ratio=0.2, test_ratio=0.1, random_state=seed)
-    elif exclude_num:
-        test_indices = exclude_indices(samples_num=rbps_number, exclude_num=exclude_num, random_state=seed)
-        if len(test_indices) == 0:
-            raise ValueError('Error excluding testing indices')
-        train_indices = list(set(range(rbps_number)).difference(set(test_indices)))
-    all_rbp_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
-    rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbp_indices],random_state=seed,val_size=0.2)
+        all_rbps_indices = np.concatenate([rbps_train_indices, rbps_validation_indices, rbps_test_indices])
+        rna_train_indices, rna_validation_indices, rna_test_indices = stratified_split_multi(intensities.T[all_rbps_indices],random_state=seed,val_size=0.2,test_size=0.1)
+
+    
     if model_name == "combined_CNN":
         rbps = rbp_one_hot(rbps)
         rnas = rna_one_hot(rnas)
@@ -135,6 +86,31 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         if "minmax" in normalization_method:
             sigmoid_head = True
         else: sigmoid_head = False
+        if per_prot:
+            protein_indices = np.concatenate([rbps_train_indices, rbps_validation_indices])
+            factory = PairDatasetFactory(rbps, rnas, intensities, place_on_cpu=True, sample_weight_array=sample_w_np)
+            protein_indices = protein_indices[protein_indices >78]
+            protein_indices = [58, 190, 191, 50 ,78]
+            for prot in protein_indices:
+                print(f"Training protein index: {prot}")
+                tf.keras.backend.clear_session()
+                temp_checkPtFile, temp_tensorBoardDir = add_prot_index_to_model_name(checkPtFile,tensorBoardDir,prot)
+                train_ds = factory.make_train(batch_size=batch_size, shuffle=True,  prot_ids=[prot],rna_ids=rna_train_indices)
+                val_ds = factory.make_train(batch_size=batch_size, shuffle=False, prot_ids=[prot],rna_ids=rna_validation_indices)
+                model,call_backs = build_ESM_CNN(prot_input=(rbps.shape[1],),rna_input=(41,4),
+                                         check_points_folder=temp_checkPtFile, tensorboard_folder=temp_tensorBoardDir,
+                                         loss_idx=loss_idx,opt_idx=opt_idx,
+                                         plateauPatience=plateauPatience, 
+                                         earlyStopPatience=earlyStopPatience,
+                                         model_type=model_type,
+                                         sigmoid_head=sigmoid_head,
+                                         dict_version= model_version)
+                start = time.time()
+                model.fit(train_ds, epochs=epochsNum, callbacks=call_backs, validation_data=val_ds)
+                end = time.time()
+                elapsed = end - start
+                print(f"Training time for protein {prot}  {elapsed:.2f} seconds")
+            return
         model,call_backs = build_ESM_CNN(prot_input=(rbps.shape[1],),rna_input=(41,4),
                                          check_points_folder=checkPtFile, tensorboard_folder=tensorBoardDir,
                                          loss_idx=loss_idx,opt_idx=opt_idx,
@@ -196,7 +172,7 @@ def train_held_out_test(model_name, exclude_num = 20, seed = 42, batch_size = 51
         # intensityPred1=np.dot(np.linalg.pinv(intensities_fold_train.T), predictedSimilarity)
         return
     
-    
+        
     train_ds = factory.make_train(batch_size=batch_size, shuffle=True,  prot_ids=rbps_train_indices,rna_ids=rna_train_indices)
     val_ds = factory.make_train(batch_size=batch_size, shuffle=False, prot_ids=rbps_validation_indices,rna_ids=rna_validation_indices)
    
@@ -243,6 +219,7 @@ batch_size = 128
             print(f"OOM at batch_size={batch_size}")
             break"""
 if __name__ =="__main__":
+    pass
     #train_k_fold("Combined_CNN")
     #train_held_out_test("ESM_CNN",exclude_num=199,loss_idx=1,opt_idx=2)
     # disterbutions = ['asymmetric_t','gaussian','asymmetric_gaussian','asymmetric_laplace',]
@@ -253,18 +230,21 @@ if __name__ =="__main__":
     #                 'quantile_minmax','quantile_zscore','quantile_meannorm']
     
     
-    remove_rna_dups = True
-    alphas = 0.5
-    clamp_by_percentile_options = False
-    if_sample_weights_options = False
-    losses = 1
-    opts = 2
-    norm_methods = 'quantile'
-    cluster = 'all'
-    model_version = 7
-    train_held_out_test("ESM_CNN",loss_idx=losses,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
-                            if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
-                            remove_rna_dups=remove_rna_dups,earlyStopPatience=7,seed=42,normalization_method=norm_methods,model_version = model_version) 
+    # remove_rna_dups = True
+    # alphas = 0.5
+    # clamp_by_percentile_options = False
+    # if_sample_weights_options = True
+    # losses = 1
+    # opts = 2
+    # norm_methods = 'quantile'
+    # cluster = None
+    # model_version = 1
+    # on_baseline=True
+    # train_held_out_test("ESM_CNN",loss_idx=losses,opt_idx=opts,if_sample_wieght=if_sample_weights_options,
+    #                         if_clamp_by_percentile=clamp_by_percentile_options,alpha=alphas,cluster_id=cluster,
+    #                         remove_rna_dups=remove_rna_dups,earlyStopPatience=10,seed=42,
+    #                         normalization_method=norm_methods,model_version = model_version,on_baseline=on_baseline,
+    #                         per_prot=True) 
     # for norm_method in norm_methods:
     #     for loss in losses:
     #         if norm_method == "quantile" and loss ==1:

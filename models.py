@@ -375,18 +375,22 @@ def build_esm_CNN_backbone(prot_input=(312,), rna_input=(41,4),
     conv_11   = layers.ReLU()(conv_11)
     conv_5    = layers.ReLU()(conv_5)
     conv_3    = layers.ReLU()(conv_3)
-
+    if params_dict['rna_2_conv']:
+        conv_11 = layers.Conv1D(params_dict['short_filters'], 3, activation='relu',use_bias=True,
+                              kernel_regularizer=regularizers.l2(regu))(conv_11)
+        conv_5  = layers.Conv1D(params_dict['short_filters'], 3, activation='relu',use_bias=True,
+                                kernel_regularizer=regularizers.l2(regu))(conv_5)
+        conv_3  = layers.Conv1D(params_dict['short_filters'], 3, activation='relu',use_bias=True,
+                                kernel_regularizer=regularizers.l2(regu))(conv_3)
+        
     pool_long = layers.MaxPooling1D(10)(conv_long)
     pool_11   = layers.MaxPooling1D(21)(conv_11)
     pool_5    = layers.MaxPooling1D(27)(conv_5)
     pool_3    = layers.MaxPooling1D(29)(conv_3)
     merged_rna = layers.concatenate([pool_11, pool_3, pool_5, pool_long])
-    if params_dict['rna_2_conv']:
-        conv_2_rna = layers.Conv1D(params_dict['short_filters'], 3, use_bias=True,
-                              kernel_regularizer=regularizers.l2(regu))(merged_rna)
-        flat_rna = layers.Flatten()(conv_2_rna)
-    else:
-        flat_rna = layers.Flatten()(merged_rna)
+    
+    flat_rna = layers.Flatten()(merged_rna)
+        
     #merged_rna = layers.concatenate([pool_11, pool_3, pool_5, pool_long])
     drop_flat  = layers.Dropout(dropout, name="drop_flat")(flat_rna)
 
