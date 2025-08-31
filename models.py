@@ -486,7 +486,7 @@ def build_ESM_CNN(prot_input=(312,), rna_input=(41,4),loss_idx= 1, check_points_
 
 
 
-
+#
 
 
 

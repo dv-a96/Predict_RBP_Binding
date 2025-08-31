@@ -9,7 +9,7 @@ import warnings
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler, PowerTransformer
 
 
-
+#
 """ 1. one hot coding: lengths and padding - zero, uniform"""
 def rna_one_hot(rna_df, max_length=41, pad_value=0, vector_length=20):
     bases = ['A', 'C', 'G', 'U']

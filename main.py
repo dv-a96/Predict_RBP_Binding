@@ -12,7 +12,7 @@ import re
 import numpy as np
 import torch
 import esm
-
+#
 BATCH_SIZE = 4096
 
 def parse_args():

@@ -42,3 +42,4 @@ def create_logger(model_name: str) -> logging.Logger:
         print(f"Logging warnings/errors to console. See full log in {log_path}")
 
     return logger
+#

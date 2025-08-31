@@ -259,7 +259,7 @@ def get_loss(lossIdx):
     elif lossIdx==5:
         myLoss= 'mean_absolute_error'
     return myLoss
-
+#
 def get_callbacks(checkPtFile, tensorBoardDir, plateauPatience = 0,earlyStopPatience = 0):
     """Generated a callback list with checkpoint, reduce lr and tensorboard
 

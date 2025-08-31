@@ -548,3 +548,4 @@ def evaluate_model(model_name, exclude_num = 20, seed = 42, batch_size = 2048, m
 # evalute_cluster_models('Models/Checkpoints/esm_cnn_cluster_all',
 #                         cluster_id='all',model_constrain='v')
 # evaluate_cluster_predictions('all', norm_method='quantile',model_constrain='v',only_ensmeble=False)
+#
