@@ -1,29 +1,34 @@
 # Predict_RBP_Binding
 
-##PreRequiermants
-* Python 2.7 (also work for Python 3 with few updates in the syntax)
-* numpy 1.15.2
-* pandas 0.23.3
-* scipy 1.1.0
-* biopython 1.72
-* gensim 3.6.0
-* memory-profiler 0.54.0
-* guppy 0.1.10
+The code uses the following packages, which can be installed with pip install requirements.txt
+esm==3.2.1.post1
+keras==3.10.0
+matplotlib==3.8.1
+numpy==2.3.2
+pandas==2.3.2
+scikit_learn==1.4.2
+scipy==1.16.1
+seaborn==0.13.2
+tensorflow==2.20.0
+torch==2.8.0
 
 
 
 
-## Using other models:
-Im not realy read off all this papers but some sound interesting:
-1. https://www.nature.com/articles/s41467-019-12920-0 not realy sure what it predicts, but something rna interactions and their effect on protein sequence. we can use this output as additional feature, and it wasnt trained on invivo\vitro data but the pdb so another level of learining.
-2. using DSSP to predict alpha helix, pockets, beta sheets
-3. using APBS to predict electrostatic charge.
-**this values should be checked with corelations to the rna intensities**
+## Objective
+The project goal is to develop a model capable of predicting the binding values of RNA sequences to proteins. Given a set of RNAs, RBPs, and their binding values from RNA-Compete experiments, the objective is to train a model that can predict the binding values for new proteins (not yet tested in experiments) with new RNA sequences.
+
+## Usage
+### Input and Output
+The program that runs the model takes as input two text files and an output file. The execution is done as follows:
+`python main.py <ofile> <RBP> <RNA> <optional: Batch_size>`
+●	ofile – path to the output file where the predicted binding values are stored.
+●	RBP – a text file containing amino acid sequences of proteins, one sequence per line.
+●	RNA – a text file containing RNA nucleotide sequences, one sequence per line.
+●	Batch_size – optional int for predicting batch size (defaults to 4096). If running causes OOM (it shouldn't) reduce batch size to 1024.
+The output of the program is a separate file for each protein (e.g., RBP201.txt, RBP202.txt, …), where each file contains the predicted binding values for the RNAs. The order of the predicted values corresponds to the order of the RNA sequences (each line in the output represents the predicted binding value for a single RNA).
 
 
-# process:
-We got the same predicted values with model training, thus we want to rescale the data to induce numeric stability.
-We followed Proberating processing by quantile normalizing and then scaling that vectors to have a unit length. 
-We belive this values are too small to effect model convergance via mse. Thus we only qunatile normalized the vecotrs. When scaling to uni length the model performance was worse.
-
+**Download the models from: https://drive.google.com/file/d/1t_HAtE_assPcQJ8juxXf0mDEohAwHv-N/view?usp=sharing**
+Unzip the folder at the working space. The output should be esm_cnn_Baseline_perProt\modelN.keras with 176 models.
 
