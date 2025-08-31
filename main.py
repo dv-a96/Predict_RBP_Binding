@@ -29,7 +29,6 @@ def parse_args():
             print("Batch size must be a positive integer.")
             sys.exit(1)
     print(f"Using batch size: {BATCH_SIZE}")
-    sys.exit()
     return output_file, rbp_file, rna_file
 
 def embedd_prot_vector(prot_vector):
