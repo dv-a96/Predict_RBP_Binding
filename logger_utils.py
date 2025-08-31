@@ -1,6 +1,5 @@
 import logging
 import os
-from naming_utilities import timestamp
 def create_logger(model_name: str) -> logging.Logger:
     """
     Creates a logger that logs everything to a file and only warnings/errors to the console.
@@ -43,3 +42,4 @@ def create_logger(model_name: str) -> logging.Logger:
         print(f"Logging warnings/errors to console. See full log in {log_path}")
 
     return logger
+#
